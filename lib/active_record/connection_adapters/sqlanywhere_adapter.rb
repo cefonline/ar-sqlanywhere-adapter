@@ -552,9 +552,7 @@ SQL
         log(sql, name, binds) do
           stmt = SA.instance.api.sqlany_prepare(@connection, sql)
           sqlanywhere_error_test(sql) if stmt==nil
-          
           begin
-            
             for i in 0...binds.length
               bind_type = binds[i][0].type
               bind_value = binds[i][1]
@@ -572,30 +570,27 @@ SQL
                 when :decimal
                   bind_param.set_value(bind_value.to_s)
                 when :date
-                  bind_param.set_value(bind_value.to_s)
+                  bind_param.set_value(bind_value.to_time.strftime("%F"))
                 when :datetime, :time
-                  bind_param.set_value(bind_value.to_time.getutc.strftime("%Y-%m-%d %H:%M:%S"))
+                  bind_param.set_value(bind_value.to_time.utc.strftime("%F %T"))
                 when :integer
                   bind_param.set_value(bind_value.to_i)
+                when :binary
+                  bind_param.set_value(bind_value)
                 else
                   bind_param.set_value(bind_value)
                 end
               end
               result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
               sqlanywhere_error_test(sql) if result==0
-              
             end
-            
             if SA.instance.api.sqlany_execute(stmt) == 0
               sqlanywhere_error_test(sql)
             end
-            
             fields = []
             native_types = []
-            
             num_cols = SA.instance.api.sqlany_num_cols(stmt)
             sqlanywhere_error_test(sql) if num_cols == -1
-            
             for i in 0...num_cols
               result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
               sqlanywhere_error_test(sql) if result==0
@@ -619,7 +614,6 @@ SQL
           ensure
             SA.instance.api.sqlany_free_stmt(stmt)
           end
-          
           if @auto_commit
             result = SA.instance.api.sqlany_commit(@connection)
             sqlanywhere_error_test(sql) if result==0
