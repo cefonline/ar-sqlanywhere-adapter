@@ -394,7 +394,7 @@ module ActiveRecord
         FROM SYS.SYSTABLE
         INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id
         INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id
-        WHERE table_name = '#{part[-1]}' AND index_category > 2"
+        WHERE table_name = '#{parts[-1]}' AND index_category > 2"
         
         # if we have owner, then use it
         if parts.length==2
