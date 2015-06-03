@@ -77,13 +77,20 @@ module ActiveRecord
 
         raise ArgumentError, "No database name was given. Please add a :database option." unless config.has_key?(:database)
 
-        connection_string  = "ServerName=#{(config[:server] || config[:database])};"
-        connection_string += "DatabaseName=#{config[:database]};"
-        connection_string += "UserID=#{config[:username]};"
-        connection_string += "Password=#{config[:password]};"
-        connection_string += "CommLinks=#{config[:commlinks]};" unless config[:commlinks].nil?
-        connection_string += "ConnectionName=#{config[:connection_name]};" unless config[:connection_name].nil?
-        connection_string += "CharSet=#{config[:encoding]};" unless config[:encoding].nil?      
+        connection_string  = "ServerName=#{(config.delete(:server) || config.delete(:database))};"
+        connection_string += "DatabaseName=#{config.delete(:database)};"
+        connection_string += "UserID=#{config.delete(:username)};"
+        connection_string += "Password=#{config.delete(:password)};"
+        connection_string += "CommLinks=#{config.delete(:commlinks)};" unless config[:commlinks].nil?
+        connection_string += "ConnectionName=#{config.delete(:connection_name)};" unless config[:connection_name].nil?
+        connection_string += "CharSet=#{config.delete(:encoding)};" unless config[:encoding].nil?
+        
+        # there add all other connection settings
+        config.delete(:adapter)
+        config.each_pair do |k, v|
+          connection_string += "#{k}=#{v};"
+        end
+        
         connection_string += "Idle=0" # Prevent the server from disconnecting us if we're idle for >240mins (by default)
       end
 
@@ -475,8 +482,11 @@ module ActiveRecord
         # numeric and decimal must be returned in the form <i>type</i>(<i>width</i>, <i>scale</i>)
         # Nullability is returned as 0 (no nulls allowed) or 1 (nulls allowed)
         # Also, ActiveRecord expects an autoincrement column to have default value of NULL
-
+        
+        # Add support for database user
         def table_structure(table_name)
+          parts = table_name.split(".")
+          
           sql = <<-SQL
 SELECT SYS.SYSCOLUMN.column_name AS name, 
   if left("default",1)='''' then substring("default", 2, length("default")-2) // remove the surrounding quotes
@@ -497,8 +507,12 @@ FROM
   INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id 
   INNER JOIN SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
 WHERE
-  table_name = '#{table_name}'
+  table_name = '#{parts[-1]}'
 SQL
+          # if we have owner, then use it
+          if parts.length==2
+            sql += " AND creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{parts[0]}')"
+          end
           structure = exec_query(sql, "skip_logging").to_hash
 
           structure.map do |column|
