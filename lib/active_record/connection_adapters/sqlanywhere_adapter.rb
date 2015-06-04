@@ -244,6 +244,12 @@ module ActiveRecord
         name = name.to_s.gsub(/\\|"/, '')
         %Q("#{name}")
       end
+      
+      def quote_table_name(name) #:nodoc:
+        parts = table_name.split(".")
+        
+        parts.collect{ |part| quote_column_name(part) }.join(".")
+      end
 
       # Handles special quoting of binary columns. Binary columns will be treated as strings inside of ActiveRecord.
       # ActiveRecord requires that any strings it inserts into databases must escape the backslash (\).
