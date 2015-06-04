@@ -245,7 +245,7 @@ module ActiveRecord
         %Q("#{name}")
       end
       
-      def quote_table_name(name) #:nodoc:
+      def quote_table_name(table_name) #:nodoc:
         parts = table_name.split(".")
         
         parts.collect{ |part| quote_column_name(part) }.join(".")
