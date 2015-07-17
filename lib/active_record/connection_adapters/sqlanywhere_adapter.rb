@@ -435,7 +435,13 @@ module ActiveRecord
       end
 
       def primary_key(table_name) #:nodoc:
-        sql = "SELECT cname from SYS.SYSCOLUMNS where tname = '#{table_name}' and in_primary_key = 'Y'"
+        parts = table_name.split(".")
+          
+        sql = sql = "SELECT cname from SYS.SYSCOLUMNS where tname = '#{parts[-1]}' and in_primary_key = 'Y'"
+        # if we have owner, then use it
+        if parts.length==2
+          sql += " AND creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{parts[0]}')"
+        end
         rs = exec_query(sql)
         if !rs.nil? and !rs.first.nil?
           rs.first['cname']
