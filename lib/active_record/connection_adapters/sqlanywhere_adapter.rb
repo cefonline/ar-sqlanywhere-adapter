@@ -380,13 +380,6 @@ module ActiveRecord
         end
       end
       
-      def list_of_tables(types, name = nil)
-        sql = "SELECT table_name
-        FROM SYS.SYSTABLE
-        WHERE table_type in (#{types.map{|t| quote(t)}.join(', ')}) and creator NOT IN (0,3,5)"
-        select(sql, name).map { |row| row["table_name"] }
-      end
-      
       def viewed_tables(name = nil)
         list_of_tables(['view'], name)
       end
@@ -440,7 +433,7 @@ module ActiveRecord
         sql = sql = "SELECT cname from SYS.SYSCOLUMNS where tname = '#{parts[-1]}' and in_primary_key = 'Y'"
         # if we have owner, then use it
         if parts.length==2
-          sql += " AND creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{parts[0]}')"
+          sql += " AND creator = '#{parts[0]}'"
         end
         rs = exec_query(sql)
         if !rs.nil? and !rs.first.nil?
@@ -558,7 +551,7 @@ WHERE
 SQL
           # if we have owner, then use it
           if parts.length==2
-            sql += " AND creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{parts[0]}')"
+            sql += " AND SYS.SYSTABLE.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{parts[0]}')"
           end
           structure = exec_query(sql, "skip_logging").to_hash
 
