@@ -124,7 +124,7 @@ module ActiveRecord
           return :datetime if field_type =~ /timestamp/i
           return :integer if field_type =~ /smallint|bigint/i
           return :text if field_type =~ /xml/i
-          return :integer if field_type =~ /uniqueidentifier/i
+          return :binary if field_type =~ /uniqueidentifier/i
           super
         end
 
