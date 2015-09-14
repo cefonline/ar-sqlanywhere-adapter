@@ -168,6 +168,10 @@ module ActiveRecord
         @visitor = Arel::Visitors::SQLAnywhere.new self
         connect!
       end
+      
+      def current_database
+        select_value "SELECT DB_PROPERTY('Name')"
+      end
 
       def explain(arel, binds = [])
         # Not implemented
