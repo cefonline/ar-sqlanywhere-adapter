@@ -85,8 +85,12 @@ module ActiveRecord
         connection_string += "ConnectionName=#{config.delete(:connection_name)};" unless config[:connection_name].nil?
         connection_string += "CharSet=#{config.delete(:encoding)};" unless config[:encoding].nil?
         
-        # there add all other connection settings
+        # Since we are using default ConnectionPool class
+        # And SqlAnywhere uses CPOOL variable for connection
+        # we have to delete pool if it is available
+        config.delete(:pool)
         config.delete(:adapter)
+        # Then add all other connection settings
         config.each_pair do |k, v|
           connection_string += "#{k}=#{v};"
         end
