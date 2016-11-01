@@ -117,6 +117,10 @@ module ActiveRecord
     end
   
     class SQLAnywhereColumn < Column
+      
+      def get_column_type
+        simplified_type(sql_type)
+      end
       private
         # Overridden to handle SQL Anywhere integer, varchar, binary, and timestamp types
         def simplified_type(field_type)
@@ -155,7 +159,7 @@ module ActiveRecord
         end
         
         def self.binary_to_string(value)
-          value.gsub(/\\x[0-9]{2}/) { |byte| byte[2..3].hex }
+          value.gsub(/\\x[0-9a-fA-F]{2}/) { |byte| byte[2..3].hex }
         end
 		
 		# Should override the time column values.
@@ -164,6 +168,38 @@ module ActiveRecord
     end
     
     class SQLAnywhereAdapter < AbstractAdapter
+      
+      module SQLAnywhereNativeTypes
+        MAPPING = {
+          0 => :DT_NOTYPE,
+          384 => :DT_DATE,
+          388 => :DT_TIME,
+          392 => :DT_TIMESTAMP,
+          448 => :DT_VARCHAR,
+          452 => :DT_FIXCHAR,
+          456 => :DT_LONGVARCHAR,
+          460 => :DT_STRING,
+          480 => :DT_DOUBLE,
+          482 => :DT_FLOAT,
+          484 => :DT_DECIMAL,
+          496 => :DT_INT,
+          500 => :DT_SMALLINT,
+          524 => :DT_BINARY,
+          528 => :DT_LONGBINARY,
+          604 => :DT_TINYINT,
+          608 => :DT_BIGINT,
+          612 => :DT_UNSINT,
+          616 => :DT_UNSSMALLINT,
+          620 => :DT_UNSBIGINT,
+          624 => :DT_BIT,
+          640 => :DT_LONGNVARCHAR
+        }
+        
+        MAPPING.each_pair do |val, const_str|
+          SQLAnywhereNativeTypes.const_set(const_str, val)
+        end
+      end
+      
       def initialize( connection, logger, connection_string = "") #:nodoc:
         super(connection, logger)
         @auto_commit = true
@@ -636,7 +672,8 @@ SQL
               sqlanywhere_error_test(sql)
             end
             fields = []
-            native_types = []
+            native_types = {}
+            native_types_hash = {}
             num_cols = SA.instance.api.sqlany_num_cols(stmt)
             sqlanywhere_error_test(sql) if num_cols == -1
             for i in 0...num_cols
@@ -644,6 +681,7 @@ SQL
               sqlanywhere_error_test(sql) if result==0
               fields << name
               native_types << native_type
+              native_types_hash[name] = native_type
             end
             rows = []
             while SA.instance.api.sqlany_fetch_next(stmt) == 1
@@ -666,7 +704,8 @@ SQL
             result = SA.instance.api.sqlany_commit(@connection)
             sqlanywhere_error_test(sql) if result==0
           end
-          return ActiveRecord::Result.new(fields, rows)
+          
+          return ActiveRecord::Result.new(fields, rows, native_types_hash)
         end
       end
         
@@ -682,9 +721,14 @@ SQL
         def native_type_to_ruby_type(native_type, value)
           return nil if value.nil?
           case native_type
-          when 484 # DT_DECIMAL (also and more importantly numeric)
+          when SQLAnywhereNativeTypes::DT_DECIMAL
             BigDecimal.new(value)
-          when 448,452,456,460,640  # DT_VARCHAR, DT_FIXCHAR, DT_LONGVARCHAR, DT_STRING, DT_LONGNVARCHAR
+          when SQLAnywhereNativeTypes::DT_VARCHAR,
+            SQLAnywhereNativeTypes::DT_FIXCHAR,
+            SQLAnywhereNativeTypes::DT_LONGVARCHAR,
+            SQLAnywhereNativeTypes::DT_STRING,
+            SQLAnywhereNativeTypes::DT_LONGNVARCHAR
+            
             value.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
           else
             value
