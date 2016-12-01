@@ -164,7 +164,6 @@ module ActiveRecord
     end
 
     class SQLAnywhereAdapter < AbstractAdapter
-
       module SQLAnywhereNativeTypes
         MAPPING = {
           0 => :DT_NOTYPE,
@@ -734,3 +733,4 @@ SQL
   end
 end
 
+load 'active_record/connection_adapters/sqlanywhere_adapter/utils.rb'

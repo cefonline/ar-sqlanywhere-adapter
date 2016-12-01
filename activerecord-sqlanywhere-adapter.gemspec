@@ -15,8 +15,8 @@ Gem::Specification.new do |s|
     "lib/active_record/connection_adapters/sqlanywhere_adapter.rb",
     "lib/arel/visitors/sqlanywhere.rb",
     "lib/active_record/connection_adapters/sqlanywhere.rake",
-    "lib/activerecord-sqlanywhere-adapter.rb"
-
+    "lib/activerecord-sqlanywhere-adapter.rb",
+    "lib/active_record/connection_adapters/sqlanywhere_adapter/utils.rb"
   ]
   s.homepage = %q{http://sqlanywhere.rubyforge.org}
   s.licenses = [%q{Apache License Version 2.0}]
@@ -39,4 +39,3 @@ Gem::Specification.new do |s|
     s.add_dependency(%q<activerecord>, [">= 3.0.3", "< 4.2"])
   end
 end
-
