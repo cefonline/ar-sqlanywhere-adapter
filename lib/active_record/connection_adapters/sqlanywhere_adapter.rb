@@ -733,4 +733,4 @@ SQL
   end
 end
 
-load 'active_record/connection_adapters/sqlanywhere_adapter/utils.rb'
+require 'active_record/connection_adapters/sqlanywhere_adapter/utils'
