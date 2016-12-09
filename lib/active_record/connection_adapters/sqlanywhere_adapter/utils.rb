@@ -1,4 +1,4 @@
-module ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter::Utils
+module ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter
   STRUCTURE_FILE_NAME_WITH_PATH = "db/structure.sql"
   UNLOAD_DATA_DIR = "test/raw_data"
 
@@ -60,8 +60,4 @@ module ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter::Utils
     def default_options
       ["-c \"#{@connection_string}\""]
     end
-end
-
-class ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter
-  include Utils
 end
