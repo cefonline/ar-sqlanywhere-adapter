@@ -1,4 +1,4 @@
-module ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter
+class ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter
   STRUCTURE_FILE_NAME_WITH_PATH = "db/structure.sql"
   UNLOAD_DATA_DIR = "test/raw_data"
 
