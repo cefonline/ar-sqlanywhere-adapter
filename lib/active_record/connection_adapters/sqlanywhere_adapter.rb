@@ -734,3 +734,6 @@ SQL
 end
 
 require 'active_record/connection_adapters/sqlanywhere_adapter/utils'
+class ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter
+  include ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter::Utils
+end
