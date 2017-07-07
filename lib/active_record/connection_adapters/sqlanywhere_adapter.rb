@@ -79,13 +79,24 @@ module ActiveRecord
 
         raise ArgumentError, "No database name was given. Please add a :database option." unless config.has_key?(:database)
 
-        connection_string  = "ServerName=#{(config[:server] || config[:database])};"
-        connection_string += "DatabaseName=#{config[:database]};"
-        connection_string += "UserID=#{config[:username]};"
-        connection_string += "Password=#{config[:password]};"
-        connection_string += "CommLinks=#{config[:commlinks]};" unless config[:commlinks].nil?
-        connection_string += "ConnectionName=#{config[:connection_name]};" unless config[:connection_name].nil?
-        connection_string += "CharSet=#{config[:encoding]};" unless config[:encoding].nil?
+        connection_string  = "ServerName=#{(config.delete(:server) || config.delete(:database))};"
+        connection_string += "DatabaseName=#{config.delete(:database)};"
+        connection_string += "UserID=#{config.delete(:username)};"
+        connection_string += "Password=#{config.delete(:password)};"
+        connection_string += "CommLinks=#{config.delete(:commlinks)};" unless config[:commlinks].nil?
+        connection_string += "ConnectionName=#{config.delete(:connection_name)};" unless config[:connection_name].nil?
+        connection_string += "CharSet=#{config.delete(:encoding)};" unless config[:encoding].nil?
+
+        # Since we are using default ConnectionPool class
+        # and SqlAnywhere uses CPOOL variable for connection
+        # we have to delete pool if it is available
+        config.delete(:pool)
+        config.delete(:adapter)
+        # Then add all other connection settings
+        config.each_pair do |k, v|
+          connection_string += "#{k}=#{v};"
+        end
+
         connection_string += "Idle=0" # Prevent the server from disconnecting us if we're idle for >240mins (by default)
       end
 
@@ -118,12 +129,20 @@ module ActiveRecord
         quote_column_name(attr)
       end
 
+      def quote_table_name table_name
+        table_name.split(".").collect{ |part| quote_column_name(part) }.join(".")
+      end
+
       def initialize( connection, logger, connection_string = "") #:nodoc:
         super(connection, logger)
         @auto_commit = true
         @affected_rows = 0
         @connection_string = connection_string
         connect!
+      end
+
+      def current_database
+        select_value "SELECT DB_PROPERTY('Name')"
       end
 
       def explain(arel, binds = [])
@@ -209,6 +228,7 @@ module ActiveRecord
             sqlanywhere_error_test(sql) if @affected_rows==-1
           rescue StandardError => e
             @affected_rows = 0
+            SA.instance.api.sqlany_rollback @connection
             raise e
           ensure
             SA.instance.api.sqlany_free_stmt(stmt)
@@ -236,14 +256,14 @@ module ActiveRecord
         case exception.errno
           when -143
             if exception.sql !~ /^SELECT/i then
-              raise ActiveRecord::ActiveRecordError.new(message)
+              raise ActiveRecord::ActiveRecordError.new message
             else
               super
             end
           when -194
-            raise InvalidForeignKey.new(message, exception)
+            raise ActiveRecord::InvalidForeignKey.new message
           when -196
-            raise RecordNotUnique.new(message, exception)
+            raise ActiveRecord::RecordNotUnique.new message
           when -183
             raise ArgumentError, message
           else
@@ -305,15 +325,15 @@ module ActiveRecord
         end
       end
 
-      # Do not return SYS-owned or DBO-owned tables or RS_systabgroup-owned
+      # Do not return SYS-owned or RS_systabgroup-owned
       def tables(name = nil) #:nodoc:
-        sql = "SELECT table_name FROM SYS.SYSTABLE WHERE creator NOT IN (0,3,5)"
+        sql = "SELECT table_name FROM SYS.SYSTABLE WHERE creator NOT IN (0,5)"
         exec_query(sql, 'skip_logging').map { |row| row["table_name"] }
       end
 
       # Returns an array of view names defined in the database.
       def views(name = nil) #:nodoc:
-        sql = "SELECT * FROM SYS.SYSTAB WHERE table_type_str = 'VIEW' AND creator NOT IN (0,3,5)"
+        sql = "SELECT * FROM SYS.SYSTAB WHERE table_type_str = 'VIEW' AND creator NOT IN (0,5)"
         exec_query(sql, 'skip_logging').map { |row| row["table_name"] }
       end
 
@@ -325,7 +345,10 @@ module ActiveRecord
       end
 
       def indexes(table_name, name = nil) #:nodoc:
-        sql = "SELECT DISTINCT index_name, \"unique\" FROM SYS.SYSTABLE INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id WHERE table_name = '#{table_name}' AND index_category > 2"
+        table_name_parts = table_name.split(".")
+        creator_where = table_name_parts.length==2 ? " AND SYS.SYSTABLE.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')" : ""
+
+        sql = "SELECT DISTINCT index_name, \"unique\" FROM SYS.SYSTABLE INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id WHERE SYS.SYSTABLE.table_name = '#{table_name_parts.last}' AND index_category > 2#{creator_where}"
         exec_query(sql, name).map do |row|
           index = IndexDefinition.new(table_name, row['index_name'])
           index.unique = row['unique'] == 1
@@ -336,8 +359,10 @@ module ActiveRecord
       end
 
       def primary_key(table_name) #:nodoc:
-        sql = "SELECT cname from SYS.SYSCOLUMNS where tname = '#{table_name}' and in_primary_key = 'Y'"
-        rs = exec_query(sql)
+        table_name_parts = table_name.split(".")
+        creator_where = table_name_parts.length==2 ? " and creator = '#{table_name_parts.first}'" : ""
+        sql = "SELECT cname from SYS.SYSCOLUMNS where tname = '#{table_name_parts.last}'#{creator_where} and in_primary_key = 'Y'"
+        rs = exec_query(sql, 'skip_logging')
         if !rs.nil? and !rs.first.nil?
           rs.first['cname']
         else
@@ -451,6 +476,7 @@ module ActiveRecord
       end
 
       def primary_keys(table_name) # :nodoc:
+        table_name_parts = table_name.split(".")
         # SQL to get primary keys for a table
         sql = "SELECT list(c.column_name order by ixc.sequence) as pk_columns
           from SYSIDX ix, SYSTABLE t, SYSIDXCOL ixc, SYSCOLUMN c
@@ -460,7 +486,8 @@ module ActiveRecord
             and ixc.table_id = c.table_id
             and ixc.column_id = c.column_id
             and ix.index_category in (1,2)
-            and t.table_name = '#{table_name}'
+            and t.table_name = '#{table_name_parts.last}'
+            and t.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')
           group by ix.index_name, ix.index_id, ix.index_category
           order by ix.index_id"
         pks = exec_query(sql, "skip_logging").to_hash.first
@@ -498,8 +525,9 @@ module ActiveRecord
           m.alias_type    %r(varchar)i,         'char'
           m.alias_type    %r(xml)i,             'char'
 
-          m.register_type %r(binary)i,          Type::Binary.new
-          m.alias_type    %r(long binary)i,     'binary'
+          m.register_type %r(binary)i,            Type::Binary.new
+          m.alias_type    %r(long binary)i,       'binary'
+          m.alias_type    %r(uniqueidentifier)i,  'binary'
 
           m.register_type %r(text)i,            Type::Text.new
           m.alias_type    %r(long varchar)i,    'text'
@@ -512,7 +540,6 @@ module ActiveRecord
           m.register_type %r(int)i,               Type::Integer.new
           m.alias_type    %r(smallint)i,          'int'
           m.alias_type    %r(bigint)i,            'int'
-          m.alias_type    %r(uniqueidentifier)i,  'int'
 
           #register_class_with_limit m, %r(tinyint)i,          Type::Boolean
           #register_class_with_limit m, %r(bit)i,              Type::Boolean
@@ -537,8 +564,9 @@ module ActiveRecord
         # numeric and decimal must be returned in the form <i>type</i>(<i>width</i>, <i>scale</i>)
         # Nullability is returned as 0 (no nulls allowed) or 1 (nulls allowed)
         # Also, ActiveRecord expects an autoincrement column to have default value of NULL
-
+        # Owner support
         def table_structure(table_name)
+          table_name_parts = table_name.split(".")
           sql = <<-SQL
 SELECT SYS.SYSCOLUMN.column_name AS name,
   if left("default",1)='''' then substring("default", 2, length("default")-2) // remove the surrounding quotes
@@ -559,8 +587,11 @@ FROM
   INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id
   INNER JOIN SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
 WHERE
-  table_name = '#{table_name}'
+  table_name = '#{table_name_parts.last}'
 SQL
+          if table_name_parts.length==2
+            sql += " AND SYS.SYSTABLE.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')"
+          end
           structure = exec_query(sql, "skip_logging").to_hash
 
           structure.map do |column|
@@ -597,8 +628,7 @@ SQL
         end
 
       def execute_query(sql, name = nil, binds = [], prepare=false)
-        return log(sql, name, binds) { execute_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
-
+        return log(sql, name, binds, type_casted_binds(binds)) { execute_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
         # Fix SQL if required
         binds.each_with_index do |bind, i|
           bind_value = type_cast(bind.value_for_database)
@@ -679,6 +709,7 @@ SQL
           sqlanywhere_error_test(sql) if @affected_rows==-1
         rescue StandardError => e
           @affected_rows = 0
+          SA.instance.api.sqlany_rollback @connection
           raise e
         ensure
           SA.instance.api.sqlany_free_stmt(stmt)
