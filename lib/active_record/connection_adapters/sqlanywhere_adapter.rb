@@ -216,16 +216,21 @@ module ActiveRecord
         execute_query(sql, name, binds, prepare)
       end
 
+      def before_execute sql
+        sql
+      end
+
       # The database execution function
       def execute(sql, name = nil) #:nodoc:
         if name == "skip_logging"
           begin
-            stmt = SA.instance.api.sqlany_prepare(@connection, sql)
-            sqlanywhere_error_test(sql) if stmt==nil
+            modified_sql = before_execute sql
+            stmt = SA.instance.api.sqlany_prepare(@connection, modified_sql)
+            sqlanywhere_error_test(modified_sql) if stmt==nil
             r = SA.instance.api.sqlany_execute(stmt)
-            sqlanywhere_error_test(sql) if r==0
+            sqlanywhere_error_test(modified_sql) if r==0
             @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
-            sqlanywhere_error_test(sql) if @affected_rows==-1
+            sqlanywhere_error_test(modified_sql) if @affected_rows==-1
           rescue StandardError => e
             @affected_rows = 0
             SA.instance.api.sqlany_rollback @connection
@@ -233,7 +238,6 @@ module ActiveRecord
           ensure
             SA.instance.api.sqlany_free_stmt(stmt)
           end
-
         else
           log(sql, name) { execute(sql, "skip_logging") }
         end
@@ -625,10 +629,15 @@ SQL
           #SA.instance.api.sqlany_execute_immediate(@connection, "SET OPTION reserved_keywords = 'LIMIT'") rescue nil
           # The liveness variable is used a low-cost "no-op" to test liveness
           SA.instance.api.sqlany_execute_immediate(@connection, "CREATE VARIABLE liveness INT") rescue nil
+          set_additional_connection_options
         end
 
+      def before_execute_query sql
+        sql
+      end
+
       def execute_query(sql, name = nil, binds = [], prepare=false)
-        return log(sql, name, binds, type_casted_binds(binds)) { execute_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
+        return log(sql, name, binds, type_casted_binds(binds)) { p binds; execute_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
         # Fix SQL if required
         binds.each_with_index do |bind, i|
           bind_value = type_cast(bind.value_for_database)
@@ -643,15 +652,16 @@ SQL
             sql = sql.sub(/DISTINCT?\s*/i, '')
           end
         end
-
-        stmt = SA.instance.api.sqlany_prepare(@connection, sql)
-        sqlanywhere_error_test(sql) if stmt==nil
+        modified_sql = before_execute_query sql
+        stmt = SA.instance.api.sqlany_prepare(@connection, modified_sql)
+        
+        sqlanywhere_error_test(modified_sql) if stmt==nil
 
         begin
           binds.each_with_index do |bind, i|
             bind_value = type_cast(bind.value_for_database)
             result, bind_param = SA.instance.api.sqlany_describe_bind_param(stmt, i)
-            sqlanywhere_error_test(sql) if result==0
+            sqlanywhere_error_test(modified_sql) if result==0
             bind_param.set_direction(1) # https://github.com/sqlanywhere/sqlanywhere/blob/master/ext/sacapi.h#L175
             if bind_value.nil?
               bind_param.set_value(nil)
@@ -677,22 +687,22 @@ SQL
               bind_param.set_type(1)
             end
             result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
-            sqlanywhere_error_test(sql) if result==0
+            sqlanywhere_error_test(modified_sql) if result==0
           end
 
           if SA.instance.api.sqlany_execute(stmt) == 0
-            sqlanywhere_error_test(sql)
+            sqlanywhere_error_test(modified_sql)
           end
 
           fields = []
           native_types = []
 
           num_cols = SA.instance.api.sqlany_num_cols(stmt)
-          sqlanywhere_error_test(sql) if num_cols == -1
+          sqlanywhere_error_test(modified_sql) if num_cols == -1
 
           for i in 0...num_cols
             result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
-            sqlanywhere_error_test(sql) if result==0
+            sqlanywhere_error_test(modified_sql) if result==0
             fields << name
             native_types << native_type
           end
@@ -706,7 +716,7 @@ SQL
             rows << row
           end
           @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
-          sqlanywhere_error_test(sql) if @affected_rows==-1
+          sqlanywhere_error_test(modified_sql) if @affected_rows==-1
         rescue StandardError => e
           @affected_rows = 0
           SA.instance.api.sqlany_rollback @connection
@@ -717,7 +727,7 @@ SQL
 
         if @auto_commit
           result = SA.instance.api.sqlany_commit(@connection)
-          sqlanywhere_error_test(sql) if result==0
+          sqlanywhere_error_test(modified_sql) if result==0
         end
         return ActiveRecord::Result.new(fields, rows)
       end

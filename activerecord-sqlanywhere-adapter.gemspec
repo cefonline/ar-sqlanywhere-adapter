@@ -1,6 +1,5 @@
-# coding: utf-8
-lib = File.expand_path('../lib', __FILE__)
-$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
+$:.push File.expand_path("../lib", __FILE__)
+
 require 'active_record/connection_adapters/version'
 
 Gem::Specification.new do |spec|
@@ -25,4 +24,3 @@ Gem::Specification.new do |spec|
   spec.add_runtime_dependency(%q<activerecord>, [">= 5.0.0"])
   spec.required_ruby_version = '>= 2.2.2'
 end
-

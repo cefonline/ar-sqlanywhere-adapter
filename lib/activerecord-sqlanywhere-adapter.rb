@@ -1,4 +1,5 @@
 # https://github.com/rsim/oracle-enhanced/blob/master/lib/activerecord-oracle_enhanced-adapter.rb
+require 'active_record/connection_adapters/sqlanywhere_adapter'
 
 if defined?(::Rails::Railtie)
   module ActiveRecord
