@@ -212,10 +212,6 @@ module ActiveRecord
         exec_query(sql, name, binds).rows
       end
 
-      def exec_query(sql, name = 'SQL', binds = [], prepare: false)
-        execute_query(sql, name, binds, prepare)
-      end
-
       def before_execute sql
         sql
       end
@@ -331,13 +327,19 @@ module ActiveRecord
 
       # Do not return SYS-owned or RS_systabgroup-owned
       def tables(name = nil) #:nodoc:
-        sql = "SELECT table_name FROM SYS.SYSTABLE WHERE creator NOT IN (0,5)"
+        sql = "SELECT (SELECT user_name FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator) + '.' +
+            SYS.SYSTABLE.table_name table_name
+          FROM SYS.SYSTABLE
+          WHERE SYS.SYSTABLE.creator NOT IN (0,5)"
         exec_query(sql, 'skip_logging').map { |row| row["table_name"] }
       end
 
       # Returns an array of view names defined in the database.
       def views(name = nil) #:nodoc:
-        sql = "SELECT * FROM SYS.SYSTAB WHERE table_type_str = 'VIEW' AND creator NOT IN (0,5)"
+        sql = "SELECT (SELECT user_name FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_id = SYS.SYSTAB.creator) + '.' +
+            SYS.SYSTAB.table_name table_name
+          FROM SYS.SYSTAB
+          WHERE SYS.SYSTAB.table_type_str = 'VIEW' AND SYS.SYSTAB.creator NOT IN (0,5)"
         exec_query(sql, 'skip_logging').map { |row| row["table_name"] }
       end
 
@@ -636,25 +638,10 @@ SQL
         sql
       end
 
-      def execute_query(sql, name = nil, binds = [], prepare=false)
-        return log(sql, name, binds, type_casted_binds(binds)) { p binds; execute_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
-        # Fix SQL if required
-        binds.each_with_index do |bind, i|
-          bind_value = type_cast(bind.value_for_database)
-          # Now that we no longer can access the limit value in the arel visitor (o.limit.expr)
-          # as it's a bindparam I can't see a better way of doing this, we need to check for limit == 1
-          # and not do a distinct select if this the case. Rails adds the primary
-          # key to the order clause in the find_nth_with_limit method but does not call the
-          # columns_for_distinct method to allow is to add it to the select clause as is required
-          # by SQLA. So here I check if limit specified and if 1 then we remove distinct from SQL string
-          if binds && bind.name.upcase == 'LIMIT' && sql.upcase.include?(' TOP ') &&
-            sql.upcase.include?(' DISTINCT ') && bind_value.to_i == 1
-            sql = sql.sub(/DISTINCT?\s*/i, '')
-          end
-        end
+      def exec_query(sql, name = nil, binds = [], prepare = false)
+        return log(sql, name, binds, type_casted_binds(binds)) { exec_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
         modified_sql = before_execute_query sql
         stmt = SA.instance.api.sqlany_prepare(@connection, modified_sql)
-        
         sqlanywhere_error_test(modified_sql) if stmt==nil
 
         begin

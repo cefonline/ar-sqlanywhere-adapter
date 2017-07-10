@@ -25,13 +25,13 @@ module Arel
         # Create SQL statement
         select_sql_without_order = [
           "SELECT",
-          ("DISTINCT" if using_distinct),
+          (" DISTINCT" if using_distinct),
           (collector_limit.value if !collector_limit.value.blank?),
           (visit(Arel::Nodes::Limit.new(2147483647)) if collector_limit.value.blank? && !collector_offset.value.blank?),
           (collector_offset.value if !collector_offset.value.blank?),
           (collector_select.value.sub(/^SELECT(\s+DISTINCT)?\s*/i, ' ')) # Remove SELECT and/or DISTINCT added by arel
         ].compact.join('')
-
+        
         collector << select_sql_without_order
         # ORDER BY
         collector = order_by_helper(o, collector)
