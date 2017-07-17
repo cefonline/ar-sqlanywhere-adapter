@@ -208,10 +208,6 @@ module ActiveRecord
         }
       end
 
-      def select_rows(sql, name = nil, binds = [])
-        exec_query(sql, name, binds).rows
-      end
-
       def before_execute sql
         sql
       end
