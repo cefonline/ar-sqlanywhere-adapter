@@ -120,6 +120,7 @@ module ActiveRecord
 
     class SQLAnywhereAdapter < AbstractAdapter
       include SQLAnywhere::Quoting
+      attr_reader :connection_string
 
       def arel_visitor
         Arel::Visitors::SQLAnywhere.new self
