@@ -143,19 +143,20 @@ module ActiveRecord
       end
 
       def current_database
-        select_value "SELECT DB_PROPERTY('Name')"
+        select_value "SELECT DB_PROPERTY('Name')", "SCHEMA"
       end
 
       def explain(arel, binds = [])
-        # Not implemented
+        raise NotImplementedError
       end
 
       def adapter_name #:nodoc:
         'SQLAnywhere'
       end
 
+      # Не работает, надо названия таблиц доработать
       def supports_migrations? #:nodoc:
-        true
+        false
       end
 
       def requires_reloading?
@@ -209,32 +210,26 @@ module ActiveRecord
         }
       end
 
-      def before_execute sql
-        sql
-      end
-
       # The database execution function
-      def execute(sql, name = nil) #:nodoc:
-        if name == "skip_logging"
+      def execute(sql, name = nil)
+        log(sql, name) do
           begin
-            modified_sql = before_execute sql
-            stmt = SA.instance.api.sqlany_prepare(@connection, modified_sql)
-            sqlanywhere_error_test(modified_sql) if stmt==nil
+            stmt = SA.instance.api.sqlany_prepare(@connection, sql)
+            sqlanywhere_error_test(sql) if stmt==nil
             r = SA.instance.api.sqlany_execute(stmt)
-            sqlanywhere_error_test(modified_sql) if r==0
+            sqlanywhere_error_test(sql) if r==0
             @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
-            sqlanywhere_error_test(modified_sql) if @affected_rows==-1
+            sqlanywhere_error_test(sql) if @affected_rows==-1
           rescue StandardError => e
             @affected_rows = 0
             SA.instance.api.sqlany_rollback @connection
             raise e
           ensure
             SA.instance.api.sqlany_free_stmt(stmt)
+            SA.instance.api.sqlany_commit(@connection) if @auto_commit
           end
-        else
-          log(sql, name) { execute(sql, "skip_logging") }
+          @affected_rows
         end
-        @affected_rows
       end
 
       def sqlanywhere_error_test(sql = '')
@@ -269,7 +264,7 @@ module ActiveRecord
       end
 
       def last_inserted_id(result)
-        select('SELECT @@IDENTITY').first["@@IDENTITY"]
+        select('SELECT @@IDENTITY', 'SCHEMA').first["@@IDENTITY"]
       end
 
       def begin_db_transaction #:nodoc:
@@ -324,20 +319,32 @@ module ActiveRecord
 
       # Do not return SYS-owned or RS_systabgroup-owned
       def tables(name = nil) #:nodoc:
-        sql = "SELECT (SELECT user_name FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator) + '.' +
-            SYS.SYSTABLE.table_name table_name
+        sql = <<-SQL
+          SELECT
+            (
+              SELECT user_name
+              FROM SYS.SYSUSER
+              WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
+            ) + '.' + SYS.SYSTABLE.table_name table_name
           FROM SYS.SYSTABLE
-          WHERE SYS.SYSTABLE.creator NOT IN (0,5)"
-        exec_query(sql, 'skip_logging').map { |row| row["table_name"] }
+          WHERE SYS.SYSTABLE.creator NOT IN (0,5)
+        SQL
+        exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
       end
 
       # Returns an array of view names defined in the database.
       def views(name = nil) #:nodoc:
-        sql = "SELECT (SELECT user_name FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_id = SYS.SYSTAB.creator) + '.' +
-            SYS.SYSTAB.table_name table_name
+        sql = <<-SQL
+          SELECT
+            (
+              SELECT user_name
+              FROM SYS.SYSUSER
+              WHERE SYS.SYSUSER.user_id = SYS.SYSTAB.creator
+            ) + '.' + SYS.SYSTAB.table_name table_name
           FROM SYS.SYSTAB
-          WHERE SYS.SYSTAB.table_type_str = 'VIEW' AND SYS.SYSTAB.creator NOT IN (0,5)"
-        exec_query(sql, 'skip_logging').map { |row| row["table_name"] }
+          WHERE SYS.SYSTAB.table_type_str = 'VIEW' AND SYS.SYSTAB.creator NOT IN (0,5)
+        SQL
+        exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
       end
 
       def columns(table_name, name = nil) #:nodoc:
@@ -349,23 +356,51 @@ module ActiveRecord
 
       def indexes(table_name, name = nil) #:nodoc:
         table_name_parts = table_name.split(".")
-        creator_where = table_name_parts.length==2 ? " AND SYS.SYSTABLE.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')" : ""
 
-        sql = "SELECT DISTINCT index_name, \"unique\" FROM SYS.SYSTABLE INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id WHERE SYS.SYSTABLE.table_name = '#{table_name_parts.last}' AND index_category > 2#{creator_where}"
+        sql = <<-SQL
+          SELECT DISTINCT index_name, \"unique\"
+          FROM SYS.SYSTABLE
+          INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id
+          INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id
+          WHERE
+            SYS.SYSTABLE.table_name = '#{table_name_parts.last}' AND
+            index_category > 2 AND
+            SYS.SYSTABLE.creator = (
+              SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}'
+            )
+        SQL
+
         exec_query(sql, name).map do |row|
           index = IndexDefinition.new(table_name, row['index_name'])
           index.unique = row['unique'] == 1
-          sql = "SELECT column_name FROM SYS.SYSIDX INNER JOIN SYS.SYSIDXCOL ON SYS.SYSIDXCOL.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id INNER JOIN SYS.SYSCOLUMN ON SYS.SYSCOLUMN.table_id = SYS.SYSIDXCOL.table_id AND SYS.SYSCOLUMN.column_id = SYS.SYSIDXCOL.column_id WHERE index_name = '#{row['index_name']}'"
-          index.columns = exec_query(sql).map { |col| col['column_name'] }
+          sql = <<-SQL
+            SELECT column_name
+            FROM SYS.SYSIDX
+            INNER JOIN SYS.SYSIDXCOL ON
+              SYS.SYSIDXCOL.table_id = SYS.SYSIDX.table_id AND
+              SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id
+            INNER JOIN SYS.SYSCOLUMN ON
+              SYS.SYSCOLUMN.table_id = SYS.SYSIDXCOL.table_id AND
+              SYS.SYSCOLUMN.column_id = SYS.SYSIDXCOL.column_id
+            WHERE index_name = '#{row['index_name']}'
+          SQL
+
+          index.columns = exec_query(sql, name).map { |col| col['column_name'] }
           index
         end
       end
 
       def primary_key(table_name) #:nodoc:
         table_name_parts = table_name.split(".")
-        creator_where = table_name_parts.length==2 ? " and creator = '#{table_name_parts.first}'" : ""
-        sql = "SELECT cname from SYS.SYSCOLUMNS where tname = '#{table_name_parts.last}'#{creator_where} and in_primary_key = 'Y'"
-        rs = exec_query(sql, 'skip_logging')
+        sql = <<-SQL
+          select cname
+          from SYS.SYSCOLUMNS
+          where tname = '#{table_name_parts.last}'
+            and creator = '#{table_name_parts.first}'
+            and in_primary_key = 'Y'
+        SQL
+
+        rs = exec_query(sql, 'SCHEMA')
         if !rs.nil? and !rs.first.nil?
           rs.first['cname']
         else
@@ -428,13 +463,13 @@ module ActiveRecord
       end
 
       def disable_referential_integrity(&block) #:nodoc:
-        old = select_value("SELECT connection_property( 'wait_for_commit' )")
+        old = select_value "SELECT connection_property( 'wait_for_commit' )", "SCHEMA"
 
         begin
-          update("SET TEMPORARY OPTION wait_for_commit = ON")
+          update("SET TEMPORARY OPTION wait_for_commit = ON", "SCHEMA")
           yield
         ensure
-          update("SET TEMPORARY OPTION wait_for_commit = #{old}")
+          update("SET TEMPORARY OPTION wait_for_commit = #{old}", "SCHEMA")
         end
       end
 
@@ -493,7 +528,7 @@ module ActiveRecord
             and t.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')
           group by ix.index_name, ix.index_id, ix.index_category
           order by ix.index_id"
-        pks = exec_query(sql, "skip_logging").to_hash.first
+        pks = exec_query(sql, "SCHEMA").to_hash.first
         if pks['pk_columns']
           pks['pk_columns'].split(',')
         else
@@ -571,31 +606,34 @@ module ActiveRecord
         def table_structure(table_name)
           table_name_parts = table_name.split(".")
           sql = <<-SQL
-SELECT SYS.SYSCOLUMN.column_name AS name,
-  if left("default",1)='''' then substring("default", 2, length("default")-2) // remove the surrounding quotes
-  else NULLIF(SYS.SYSCOLUMN."default", 'autoincrement')
-  endif AS "default",
-  IF SYS.SYSCOLUMN.domain_id IN (7,8,9,11,33,34,35,3,27) THEN
-    IF SYS.SYSCOLUMN.domain_id IN (3,27) THEN
-      SYS.SYSDOMAIN.domain_name || '(' || SYS.SYSCOLUMN.width || ',' || SYS.SYSCOLUMN.scale || ')'
-    ELSE
-      SYS.SYSDOMAIN.domain_name || '(' || SYS.SYSCOLUMN.width || ')'
-    ENDIF
-  ELSE
-    SYS.SYSDOMAIN.domain_name
-  ENDIF AS domain,
-  IF SYS.SYSCOLUMN.nulls = 'Y' THEN 1 ELSE 0 ENDIF AS nulls
-FROM
-  SYS.SYSCOLUMN
-  INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id
-  INNER JOIN SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
-WHERE
-  table_name = '#{table_name_parts.last}'
-SQL
-          if table_name_parts.length==2
-            sql += " AND SYS.SYSTABLE.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')"
-          end
-          structure = exec_query(sql, "skip_logging").to_hash
+            SELECT
+              SYS.SYSCOLUMN.column_name AS name,
+              if left("default",1)='''' then
+                substring("default", 2, length("default")-2)
+              else
+                NULLIF(SYS.SYSCOLUMN."default", 'autoincrement')
+              endif AS "default",
+              IF SYS.SYSCOLUMN.domain_id IN (7,8,9,11,33,34,35,3,27) THEN
+                IF SYS.SYSCOLUMN.domain_id IN (3,27) THEN
+                  SYS.SYSDOMAIN.domain_name || '(' || SYS.SYSCOLUMN.width || ',' || SYS.SYSCOLUMN.scale || ')'
+                ELSE
+                  SYS.SYSDOMAIN.domain_name || '(' || SYS.SYSCOLUMN.width || ')'
+                ENDIF
+              ELSE
+                SYS.SYSDOMAIN.domain_name
+              ENDIF AS domain,
+              IF SYS.SYSCOLUMN.nulls = 'Y' THEN 1 ELSE 0 ENDIF AS nulls
+            FROM
+              SYS.SYSCOLUMN
+            INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id
+            INNER JOIN  SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
+            WHERE
+              table_name = '#{table_name_parts.last}'
+            AND SYS.SYSTABLE.creator = (
+              SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}'
+            )
+          SQL
+          structure = exec_query(sql, "SCHEMA").to_hash
 
           structure.map do |column|
             if String === column["default"]
@@ -628,92 +666,84 @@ SQL
           #SA.instance.api.sqlany_execute_immediate(@connection, "SET OPTION reserved_keywords = 'LIMIT'") rescue nil
           # The liveness variable is used a low-cost "no-op" to test liveness
           SA.instance.api.sqlany_execute_immediate(@connection, "CREATE VARIABLE liveness INT") rescue nil
-          set_additional_connection_options
         end
-
-      def before_execute_query sql
-        sql
-      end
 
       def exec_query(sql, name = nil, binds = [], prepare = false)
-        return log(sql, name, binds, type_casted_binds(binds)) { exec_query(sql, 'skip_logging', binds) } unless name=='skip_logging'
-        modified_sql = before_execute_query sql
-        stmt = SA.instance.api.sqlany_prepare(@connection, modified_sql)
-        sqlanywhere_error_test(modified_sql) if stmt==nil
+        log(sql, name, binds, type_casted_binds(binds)) do
+          stmt = SA.instance.api.sqlany_prepare(@connection, sql)
+          sqlanywhere_error_test(sql) if stmt==nil
 
-        begin
-          binds.each_with_index do |bind, i|
-            bind_value = type_cast(bind.value_for_database)
-            result, bind_param = SA.instance.api.sqlany_describe_bind_param(stmt, i)
-            sqlanywhere_error_test(modified_sql) if result==0
-            bind_param.set_direction(1) # https://github.com/sqlanywhere/sqlanywhere/blob/master/ext/sacapi.h#L175
-            if bind_value.nil?
-              bind_param.set_value(nil)
-            else
-              bind_param.set_value(bind_value)
+          begin
+            binds.each_with_index do |bind, i|
+              bind_value = type_cast(bind.value_for_database)
+              result, bind_param = SA.instance.api.sqlany_describe_bind_param(stmt, i)
+              sqlanywhere_error_test(sql) if result==0
+              bind_param.set_direction(1) # https://github.com/sqlanywhere/sqlanywhere/blob/master/ext/sacapi.h#L175
+              if bind_value.nil?
+                bind_param.set_value(nil)
+              else
+                bind_param.set_value(bind_value)
+              end
+              # Just could not get binary data to work as a bind parameter even when using the correct format
+              # by escaping the data as per comments in quoting.rb:
+              # SQL Anywhere requires that binary values be encoded as \xHH, where HH is a hexadecimal number
+              # It ALWAYS treated the value as a string no matter what I tried. I added -zr all -zo reqlog.txt
+              # option to my server to log exactly what SQLA was processing. I think the reason is that the set_value
+              # method receives the value as a string and then sets the type as a string so SQLA then treats whatever
+              # we pass in as a string.
+              #
+              # To fix this problem I've had to modify a fork of sqlanywhere gem working on branch ruby22. I modified
+              # the code to allow me to get/set the bind param. This allowed me to override the type set by set_value
+              # before I bound the param to the statement, see code below. Setting the type means we pass in the binary
+              # data as is without encoding the value at all (see quoting.rb)
+              #
+              # The problem with this approach is that it binds this gem to a particular branch of sqlanywhere.
+              #
+              if bind.value_for_database.class == Type::Binary::Data
+                bind_param.set_type(1)
+              end
+              result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
+              sqlanywhere_error_test(sql) if result==0
             end
-            # Just could not get binary data to work as a bind parameter even when using the correct format
-            # by escaping the data as per comments in quoting.rb:
-            # SQL Anywhere requires that binary values be encoded as \xHH, where HH is a hexadecimal number
-            # It ALWAYS treated the value as a string no matter what I tried. I added -zr all -zo reqlog.txt
-            # option to my server to log exactly what SQLA was processing. I think the reason is that the set_value
-            # method receives the value as a string and then sets the type as a string so SQLA then treats whatever
-            # we pass in as a string.
-            #
-            # To fix this problem I've had to modify a fork of sqlanywhere gem working on branch ruby22. I modified
-            # the code to allow me to get/set the bind param. This allowed me to override the type set by set_value
-            # before I bound the param to the statement, see code below. Setting the type means we pass in the binary
-            # data as is without encoding the value at all (see quoting.rb)
-            #
-            # The problem with this approach is that it binds this gem to a particular branch of sqlanywhere.
-            #
-            if bind.value_for_database.class == Type::Binary::Data
-              bind_param.set_type(1)
+
+            if SA.instance.api.sqlany_execute(stmt) == 0
+              sqlanywhere_error_test(sql)
             end
-            result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
-            sqlanywhere_error_test(modified_sql) if result==0
-          end
 
-          if SA.instance.api.sqlany_execute(stmt) == 0
-            sqlanywhere_error_test(modified_sql)
-          end
+            fields = []
+            native_types = []
 
-          fields = []
-          native_types = []
+            num_cols = SA.instance.api.sqlany_num_cols(stmt)
+            sqlanywhere_error_test(sql) if num_cols == -1
 
-          num_cols = SA.instance.api.sqlany_num_cols(stmt)
-          sqlanywhere_error_test(modified_sql) if num_cols == -1
-
-          for i in 0...num_cols
-            result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
-            sqlanywhere_error_test(modified_sql) if result==0
-            fields << name
-            native_types << native_type
-          end
-          rows = []
-          while SA.instance.api.sqlany_fetch_next(stmt) == 1
-            row = []
             for i in 0...num_cols
-              r, value = SA.instance.api.sqlany_get_column(stmt, i)
-              row << native_type_to_ruby_type(native_types[i], value)
+              result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
+              sqlanywhere_error_test(sql) if result==0
+              fields << name
+              native_types << native_type
             end
-            rows << row
+            rows = []
+            while SA.instance.api.sqlany_fetch_next(stmt) == 1
+              row = []
+              for i in 0...num_cols
+                r, value = SA.instance.api.sqlany_get_column(stmt, i)
+                row << native_type_to_ruby_type(native_types[i], value)
+              end
+              rows << row
+            end
+            @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
+            sqlanywhere_error_test(sql) if @affected_rows==-1
+          rescue StandardError => e
+            @affected_rows = 0
+            SA.instance.api.sqlany_rollback @connection
+            raise e
+          ensure
+            SA.instance.api.sqlany_free_stmt(stmt)
+            SA.instance.api.sqlany_commit(@connection) if @auto_commit
           end
-          @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
-          sqlanywhere_error_test(modified_sql) if @affected_rows==-1
-        rescue StandardError => e
-          @affected_rows = 0
-          SA.instance.api.sqlany_rollback @connection
-          raise e
-        ensure
-          SA.instance.api.sqlany_free_stmt(stmt)
-        end
 
-        if @auto_commit
-          result = SA.instance.api.sqlany_commit(@connection)
-          sqlanywhere_error_test(modified_sql) if result==0
+          ActiveRecord::Result.new(fields, rows)
         end
-        return ActiveRecord::Result.new(fields, rows)
       end
 
       def exec_delete(sql, name = 'SQL', binds = [])
