@@ -117,10 +117,6 @@ module ActiveRecord
     end
 
     class SQLAnywhereColumn < Column
-
-      def get_column_type
-        simplified_type(sql_type)
-      end
       private
         # Overridden to handle SQL Anywhere integer, varchar, binary, and timestamp types
         def simplified_type(field_type)
@@ -205,7 +201,7 @@ module ActiveRecord
       end
 
       def current_database
-        select_value "SELECT DB_PROPERTY('Name')"
+        select_value "SELECT DB_PROPERTY('Name')", "SCHEMA"
       end
 
       def explain(arel, binds = [])
@@ -232,7 +228,7 @@ module ActiveRecord
       end
 
       def disconnect!
-        result = SA.instance.api.sqlany_disconnect( @connection )
+        SA.instance.api.sqlany_disconnect( @connection )
         super
       end
 
@@ -269,10 +265,6 @@ module ActiveRecord
           :binary      => { :name => "binary" },
           :boolean     => { :name => "tinyint", :limit => 1}
         }
-      end
-
-      def select_rows(sql, name = nil, binds = [])
-        exec_query(sql, name, binds).rows
       end
 
       # QUOTING ==================================================
@@ -313,7 +305,7 @@ module ActiveRecord
 
       # The database execution function
       def execute(sql, name = nil) #:nodoc:
-        if name == "skip_logging"
+        log(sql, name) do
           begin
             stmt = SA.instance.api.sqlany_prepare(@connection, sql)
             sqlanywhere_error_test(sql) if stmt==nil
@@ -323,15 +315,14 @@ module ActiveRecord
             sqlanywhere_error_test(sql) if @affected_rows==-1
           rescue StandardError => e
             @affected_rows = 0
+            SA.instance.api.sqlany_rollback @connection
             raise e
           ensure
             SA.instance.api.sqlany_free_stmt(stmt)
+            SA.instance.api.sqlany_commit(@connection) if @auto_commit
           end
-
-        else
-          log(sql, name) { execute(sql, "skip_logging") }
+          @affected_rows
         end
-        @affected_rows
       end
 
       def sqlanywhere_error_test(sql = '')
@@ -366,7 +357,7 @@ module ActiveRecord
       end
 
       def last_inserted_id(result)
-        select('SELECT @@IDENTITY').first["@@IDENTITY"]
+        select('SELECT @@IDENTITY', 'SCHEMA').first["@@IDENTITY"]
       end
 
       def begin_db_transaction #:nodoc:
@@ -419,17 +410,17 @@ module ActiveRecord
         end
       end
 
-      def viewed_tables(name = nil)
+      def viewed_tables(name = "SCHEMA")
         list_of_tables(['view'], name)
       end
 
-      def base_tables(name = nil)
+      def base_tables(name = "SCHEMA")
         list_of_tables(['base'], name)
       end
 
       # Do not return SYS-owned or DBO-owned tables or RS_systabgroup-owned
-      def tables(name = nil) #:nodoc:
-        list_of_tables(['base', 'view'])
+      def tables(name = "SCHEMA") #:nodoc:
+        list_of_tables(['base', 'view'], name)
       end
 
       def columns(table_name, name = nil) #:nodoc:
@@ -461,7 +452,7 @@ module ActiveRecord
           INNER JOIN SYS.SYSIDXCOL ON SYS.SYSIDXCOL.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id
           INNER JOIN SYS.SYSCOLUMN ON SYS.SYSCOLUMN.table_id = SYS.SYSIDXCOL.table_id AND SYS.SYSCOLUMN.column_id = SYS.SYSIDXCOL.column_id
           WHERE index_name = '#{row['index_name']}'"
-          index.columns = exec_query(sql).map { |col| col['column_name'] }
+          index.columns = exec_query(sql, name).map { |col| col['column_name'] }
           index
         end
       end
@@ -474,7 +465,7 @@ module ActiveRecord
         if parts.length==2
           sql += " AND creator = '#{parts[0]}'"
         end
-        rs = exec_query(sql)
+        rs = exec_query(sql, "SCHEMA")
         if !rs.nil? and !rs.first.nil?
           rs.first['cname']
         else
@@ -533,28 +524,38 @@ module ActiveRecord
       end
 
      def disable_referential_integrity(&block) #:nodoc:
-       old = select_value("SELECT connection_property( 'wait_for_commit' )")
+       old = select_value("SELECT connection_property( 'wait_for_commit' )", 'SCHEMA')
 
        begin
-         update("SET TEMPORARY OPTION wait_for_commit = ON")
+         update("SET TEMPORARY OPTION wait_for_commit = ON", 'SCHEMA')
          yield
        ensure
-         update("SET TEMPORARY OPTION wait_for_commit = #{old}")
+         update("SET TEMPORARY OPTION wait_for_commit = #{old}", 'SCHEMA')
        end
      end
 
       protected
-        def list_of_tables(types, name = nil)
-          sql = "SELECT table_name
+        def list_of_tables(types, name = "SCHEMA")
+          sql = <<-SQL
+          SELECT
+            (
+              SELECT user_name
+              FROM SYS.SYSUSER
+              WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
+            ) + '.' + SYS.SYSTABLE.table_name table_name
           FROM SYS.SYSTABLE
-          WHERE table_type in (#{types.map{|t| quote(t)}.join(', ')}) and creator NOT IN (0,3,5)"
+          WHERE SYS.SYSTABLE.creator NOT IN (0,5)
+        SQL
           select(sql, name).map { |row| row["table_name"] }
         end
 
         def select(sql, name = nil, binds = []) #:nodoc:
-           exec_query(sql, name, binds)
+          exec_query(sql, name, binds)
         end
 
+        def select_rows(sql, name = nil, binds = [])
+          exec_query(sql, name, binds).rows
+        end
         # Queries the structure of a table including the columns names, defaults, type, and nullability
         # ActiveRecord uses the type to parse scale and precision information out of the types. As a result,
         # chars, varchars, binary, nchars, nvarchars must all be returned in the form <i>type</i>(<i>width</i>)
@@ -592,7 +593,7 @@ SQL
           if parts.length==2
             sql += " AND SYS.SYSTABLE.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{parts[0]}')"
           end
-          structure = exec_query(sql, "skip_logging").to_hash
+          structure = exec_query(sql, "SCHEMA").to_hash
 
           structure.map do |column|
             if String === column["default"]
@@ -628,38 +629,19 @@ SQL
         end
 
       def exec_query(sql, name = nil, binds = [])
-        log(sql, name, binds) do
+        type_casted_binds = binds.map { |col, val| [col, type_cast(val, col)] }
+        log(sql, name, type_casted_binds) do
           stmt = SA.instance.api.sqlany_prepare(@connection, sql)
           sqlanywhere_error_test(sql) if stmt==nil
           begin
-            for i in 0...binds.length
-              bind_type = binds[i][0].type
-              bind_value = binds[i][1]
+            type_casted_binds.each_with_index do |bind, i|
+              bind_value = bind.last
               result, bind_param = SA.instance.api.sqlany_describe_bind_param(stmt, i)
               sqlanywhere_error_test(sql) if result==0
 
               bind_param.set_direction(1) # https://github.com/sqlanywhere/sqlanywhere/blob/master/ext/sacapi.h#L175
-              if bind_value.nil?
-                bind_param.set_value(nil)
-              else
-                # perhaps all this ought to be handled in the column class?
-                case bind_type
-                when :boolean
-                  bind_param.set_value(bind_value ? 1 : 0)
-                when :decimal
-                  bind_param.set_value(bind_value.to_s)
-                when :date
-                  bind_param.set_value(bind_value.to_time.strftime("%F"))
-                when :datetime, :time
-                  bind_param.set_value(bind_value.to_time.utc.strftime("%F %T"))
-                when :integer
-                  bind_param.set_value(bind_value.to_i)
-                when :binary
-                  bind_param.set_value(bind_value)
-                else
-                  bind_param.set_value(bind_value)
-                end
-              end
+              bind_param.set_value(bind_value)
+
               result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
               sqlanywhere_error_test(sql) if result==0
             end
@@ -667,8 +649,7 @@ SQL
               sqlanywhere_error_test(sql)
             end
             fields = []
-            native_types = {}
-            native_types_hash = {}
+            native_types = []
             num_cols = SA.instance.api.sqlany_num_cols(stmt)
             sqlanywhere_error_test(sql) if num_cols == -1
             for i in 0...num_cols
@@ -676,7 +657,6 @@ SQL
               sqlanywhere_error_test(sql) if result==0
               fields << name
               native_types << native_type
-              native_types_hash[name] = native_type
             end
             rows = []
             while SA.instance.api.sqlany_fetch_next(stmt) == 1
@@ -691,16 +671,14 @@ SQL
             sqlanywhere_error_test(sql) if @affected_rows==-1
           rescue StandardError => e
             @affected_rows = 0
+            SA.instance.api.sqlany_rollback @connection
             raise e
           ensure
             SA.instance.api.sqlany_free_stmt(stmt)
-          end
-          if @auto_commit
-            result = SA.instance.api.sqlany_commit(@connection)
-            sqlanywhere_error_test(sql) if result==0
+            SA.instance.api.sqlany_commit(@connection) if @auto_commit
           end
 
-          return ActiveRecord::Result.new(fields, rows, native_types_hash)
+          return ActiveRecord::Result.new(fields, rows)
         end
       end
 
