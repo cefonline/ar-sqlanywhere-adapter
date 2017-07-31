@@ -210,26 +210,30 @@ module ActiveRecord
         }
       end
 
-      # The database execution function
-      def execute(sql, name = nil)
+      def execute sql, name = nil
         log(sql, name) do
-          begin
-            stmt = SA.instance.api.sqlany_prepare(@connection, sql)
-            sqlanywhere_error_test(sql) if stmt==nil
-            r = SA.instance.api.sqlany_execute(stmt)
-            sqlanywhere_error_test(sql) if r==0
-            @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
-            sqlanywhere_error_test(sql) if @affected_rows==-1
-          rescue StandardError => e
-            @affected_rows = 0
-            SA.instance.api.sqlany_rollback @connection
-            raise e
-          ensure
-            SA.instance.api.sqlany_free_stmt(stmt)
-            SA.instance.api.sqlany_commit(@connection) if @auto_commit
-          end
-          @affected_rows
+          _execute sql, name
         end
+      end
+
+      # The database execution function
+      def _execute(sql, name)
+        begin
+          stmt = SA.instance.api.sqlany_prepare(@connection, sql)
+          sqlanywhere_error_test(sql) if stmt==nil
+          r = SA.instance.api.sqlany_execute(stmt)
+          sqlanywhere_error_test(sql) if r==0
+          @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
+          sqlanywhere_error_test(sql) if @affected_rows==-1
+        rescue StandardError => e
+          @affected_rows = 0
+          SA.instance.api.sqlany_rollback @connection
+          raise e
+        ensure
+          SA.instance.api.sqlany_free_stmt(stmt)
+          SA.instance.api.sqlany_commit(@connection) if @auto_commit
+        end
+        @affected_rows
       end
 
       def sqlanywhere_error_test(sql = '')
@@ -668,82 +672,86 @@ module ActiveRecord
           SA.instance.api.sqlany_execute_immediate(@connection, "CREATE VARIABLE liveness INT") rescue nil
         end
 
-      def exec_query(sql, name = nil, binds = [], prepare = false)
+      def exec_query sql, name = nil, binds = [], prepare = false
         log(sql, name, binds, type_casted_binds(binds)) do
-          stmt = SA.instance.api.sqlany_prepare(@connection, sql)
-          sqlanywhere_error_test(sql) if stmt==nil
+          _exec_query sql, name, binds, prepare
+        end
+      end
 
-          begin
-            binds.each_with_index do |bind, i|
-              bind_value = type_cast(bind.value_for_database)
-              result, bind_param = SA.instance.api.sqlany_describe_bind_param(stmt, i)
-              sqlanywhere_error_test(sql) if result==0
-              bind_param.set_direction(1) # https://github.com/sqlanywhere/sqlanywhere/blob/master/ext/sacapi.h#L175
-              if bind_value.nil?
-                bind_param.set_value(nil)
-              else
-                bind_param.set_value(bind_value)
-              end
-              # Just could not get binary data to work as a bind parameter even when using the correct format
-              # by escaping the data as per comments in quoting.rb:
-              # SQL Anywhere requires that binary values be encoded as \xHH, where HH is a hexadecimal number
-              # It ALWAYS treated the value as a string no matter what I tried. I added -zr all -zo reqlog.txt
-              # option to my server to log exactly what SQLA was processing. I think the reason is that the set_value
-              # method receives the value as a string and then sets the type as a string so SQLA then treats whatever
-              # we pass in as a string.
-              #
-              # To fix this problem I've had to modify a fork of sqlanywhere gem working on branch ruby22. I modified
-              # the code to allow me to get/set the bind param. This allowed me to override the type set by set_value
-              # before I bound the param to the statement, see code below. Setting the type means we pass in the binary
-              # data as is without encoding the value at all (see quoting.rb)
-              #
-              # The problem with this approach is that it binds this gem to a particular branch of sqlanywhere.
-              #
-              if bind.value_for_database.class == Type::Binary::Data
-                bind_param.set_type(1)
-              end
-              result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
-              sqlanywhere_error_test(sql) if result==0
+      def _exec_query(sql, name, binds, prepare)
+        stmt = SA.instance.api.sqlany_prepare(@connection, sql)
+        sqlanywhere_error_test(sql) if stmt==nil
+
+        begin
+          binds.each_with_index do |bind, i|
+            bind_value = type_cast(bind.value_for_database)
+            result, bind_param = SA.instance.api.sqlany_describe_bind_param(stmt, i)
+            sqlanywhere_error_test(sql) if result==0
+            bind_param.set_direction(1) # https://github.com/sqlanywhere/sqlanywhere/blob/master/ext/sacapi.h#L175
+            if bind_value.nil?
+              bind_param.set_value(nil)
+            else
+              bind_param.set_value(bind_value)
             end
-
-            if SA.instance.api.sqlany_execute(stmt) == 0
-              sqlanywhere_error_test(sql)
+            # Just could not get binary data to work as a bind parameter even when using the correct format
+            # by escaping the data as per comments in quoting.rb:
+            # SQL Anywhere requires that binary values be encoded as \xHH, where HH is a hexadecimal number
+            # It ALWAYS treated the value as a string no matter what I tried. I added -zr all -zo reqlog.txt
+            # option to my server to log exactly what SQLA was processing. I think the reason is that the set_value
+            # method receives the value as a string and then sets the type as a string so SQLA then treats whatever
+            # we pass in as a string.
+            #
+            # To fix this problem I've had to modify a fork of sqlanywhere gem working on branch ruby22. I modified
+            # the code to allow me to get/set the bind param. This allowed me to override the type set by set_value
+            # before I bound the param to the statement, see code below. Setting the type means we pass in the binary
+            # data as is without encoding the value at all (see quoting.rb)
+            #
+            # The problem with this approach is that it binds this gem to a particular branch of sqlanywhere.
+            #
+            if bind.value_for_database.class == Type::Binary::Data
+              bind_param.set_type(1)
             end
-
-            fields = []
-            native_types = []
-
-            num_cols = SA.instance.api.sqlany_num_cols(stmt)
-            sqlanywhere_error_test(sql) if num_cols == -1
-
-            for i in 0...num_cols
-              result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
-              sqlanywhere_error_test(sql) if result==0
-              fields << name
-              native_types << native_type
-            end
-            rows = []
-            while SA.instance.api.sqlany_fetch_next(stmt) == 1
-              row = []
-              for i in 0...num_cols
-                r, value = SA.instance.api.sqlany_get_column(stmt, i)
-                row << native_type_to_ruby_type(native_types[i], value)
-              end
-              rows << row
-            end
-            @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
-            sqlanywhere_error_test(sql) if @affected_rows==-1
-          rescue StandardError => e
-            @affected_rows = 0
-            SA.instance.api.sqlany_rollback @connection
-            raise e
-          ensure
-            SA.instance.api.sqlany_free_stmt(stmt)
-            SA.instance.api.sqlany_commit(@connection) if @auto_commit
+            result = SA.instance.api.sqlany_bind_param(stmt, i, bind_param)
+            sqlanywhere_error_test(sql) if result==0
           end
 
-          ActiveRecord::Result.new(fields, rows)
+          if SA.instance.api.sqlany_execute(stmt) == 0
+            sqlanywhere_error_test(sql)
+          end
+
+          fields = []
+          native_types = []
+
+          num_cols = SA.instance.api.sqlany_num_cols(stmt)
+          sqlanywhere_error_test(sql) if num_cols == -1
+
+          for i in 0...num_cols
+            result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
+            sqlanywhere_error_test(sql) if result==0
+            fields << name
+            native_types << native_type
+          end
+          rows = []
+          while SA.instance.api.sqlany_fetch_next(stmt) == 1
+            row = []
+            for i in 0...num_cols
+              r, value = SA.instance.api.sqlany_get_column(stmt, i)
+              row << native_type_to_ruby_type(native_types[i], value)
+            end
+            rows << row
+          end
+          @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
+          sqlanywhere_error_test(sql) if @affected_rows==-1
+        rescue StandardError => e
+          @affected_rows = 0
+          SA.instance.api.sqlany_rollback @connection
+          raise e
+        ensure
+          SA.instance.api.sqlany_free_stmt(stmt)
+          SA.instance.api.sqlany_commit(@connection) if @auto_commit
         end
+
+        ActiveRecord::Result.new(fields, rows)
       end
 
       def exec_delete(sql, name = 'SQL', binds = [])
