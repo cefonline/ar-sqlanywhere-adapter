@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = %q{activerecord-sqlanywhere-adapter}
-  s.version = "1.1.0"
+  s.version = "1.1.1"
 
   s.authors = [%q{Eric Farar}]
   s.description = %q{ActiveRecord driver for SQL Anywhere}
@@ -15,7 +15,8 @@ Gem::Specification.new do |s|
     "lib/arel/visitors/sqlanywhere.rb",
     "lib/active_record/connection_adapters/sqlanywhere.rake",
     "lib/activerecord-sqlanywhere-adapter.rb",
-    "lib/active_record/connection_adapters/sqlanywhere_adapter/utils.rb"
+    "lib/active_record/connection_adapters/sqlanywhere_adapter/utils.rb",
+    "lib/active_record/connection_adapters/sqlanywhere_adapter/quoting.rb"
   ]
   s.homepage = %q{http://sqlanywhere.rubyforge.org}
   s.licenses = [%q{Apache License Version 2.0}]

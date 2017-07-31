@@ -23,6 +23,7 @@
 #====================================================
 
 require 'active_record/connection_adapters/abstract_adapter'
+require 'active_record/connection_adapters/sqlanywhere_adapter/quoting'
 require 'arel/visitors/sqlanywhere.rb'
 
 # Singleton class to hold a valid instance of the SQLAnywhereInterface across all connections
@@ -120,7 +121,7 @@ module ActiveRecord
       private
         # Overridden to handle SQL Anywhere integer, varchar, binary, and timestamp types
         def simplified_type(field_type)
-          return :boolean if field_type =~ /tinyint/i
+          return :integer if field_type =~ /tinyint/i
           return :boolean if field_type =~ /bit/i
           return :text if field_type =~ /long varchar/i
           return :string if field_type =~ /varchar/i
@@ -160,6 +161,7 @@ module ActiveRecord
     end
 
     class SQLAnywhereAdapter < AbstractAdapter
+      include Quoting
       module SQLAnywhereNativeTypes
         MAPPING = {
           0 => :DT_NOTYPE,
@@ -265,42 +267,6 @@ module ActiveRecord
           :binary      => { :name => "binary" },
           :boolean     => { :name => "tinyint", :limit => 1}
         }
-      end
-
-      # QUOTING ==================================================
-
-      # Applies quotations around column names in generated queries
-      def quote_column_name(name) #:nodoc:
-        # Remove backslashes and double quotes from column names
-        name = name.to_s.gsub(/\\|"/, '')
-        %Q("#{name}")
-      end
-
-      def quote_table_name(table_name) #:nodoc:
-        parts = table_name.split(".")
-
-        parts.collect{ |part| quote_column_name(part) }.join(".")
-      end
-
-      # Handles special quoting of binary columns. Binary columns will be treated as strings inside of ActiveRecord.
-      # ActiveRecord requires that any strings it inserts into databases must escape the backslash (\).
-      # Since in the binary case, the (\x) is significant to SQL Anywhere, it cannot be escaped.
-      def quote(value, column = nil)
-        case value
-          when String, ActiveSupport::Multibyte::Chars
-            value_S = value.to_s
-            if column && column.type == :binary && column.class.respond_to?(:string_to_binary)
-              "'#{column.class.string_to_binary(value_S)}'"
-            else
-               super(value, column)
-            end
-          when TrueClass
-            1
-          when FalseClass
-            0
-          else
-            super(value, column)
-        end
       end
 
       # The database execution function
