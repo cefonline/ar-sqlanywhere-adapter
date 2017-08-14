@@ -331,7 +331,10 @@ module ActiveRecord
               WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
             ) + '.' + SYS.SYSTABLE.table_name table_name
           FROM SYS.SYSTABLE
-          WHERE SYS.SYSTABLE.table_type = 'BASE' AND SYS.SYSTABLE.creator NOT IN (0,5)
+          WHERE
+            SYS.SYSTABLE.table_type = 'BASE' AND
+            SYS.SYSTABLE.creator NOT IN (0,5) AND
+            SYS.SYSTABLE.server_type = 'SA'
         SQL
         exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
       end
@@ -346,7 +349,10 @@ module ActiveRecord
               WHERE SYS.SYSUSER.user_id = SYS.SYSTAB.creator
             ) + '.' + SYS.SYSTAB.table_name table_name
           FROM SYS.SYSTAB
-          WHERE SYS.SYSTAB.table_type_str = 'VIEW' AND SYS.SYSTAB.creator NOT IN (0,5)
+          WHERE
+            SYS.SYSTAB.table_type_str = 'VIEW' AND
+            SYS.SYSTAB.creator NOT IN (0,5) AND
+            SYS.SYSTAB.server_type = 1
         SQL
         exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
       end
