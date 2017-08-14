@@ -331,7 +331,7 @@ module ActiveRecord
               WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
             ) + '.' + SYS.SYSTABLE.table_name table_name
           FROM SYS.SYSTABLE
-          WHERE SYS.SYSTABLE.creator NOT IN (0,5)
+          WHERE SYS.SYSTABLE.table_type = 'BASE' AND SYS.SYSTABLE.creator NOT IN (0,5)
         SQL
         exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
       end
