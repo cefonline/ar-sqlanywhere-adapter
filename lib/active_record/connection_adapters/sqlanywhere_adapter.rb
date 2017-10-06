@@ -239,7 +239,11 @@ module ActiveRecord
       def sqlanywhere_error_test(sql = '')
         error_code, error_message = SA.instance.api.sqlany_error(@connection)
         if error_code != 0
-          sqlanywhere_error(error_code, error_message, sql)
+          sqlanywhere_error(
+            error_code,
+            error_message.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8"),
+            sql
+          )
         end
       end
 
@@ -248,20 +252,21 @@ module ActiveRecord
       end
 
       def translate_exception(exception, message)
+        encoded_msg = message.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
         return super unless exception.respond_to?(:errno)
         case exception.errno
           when -143
             if exception.sql !~ /^SELECT/i then
-              raise ActiveRecord::ActiveRecordError.new message
+              raise ActiveRecord::ActiveRecordError.new encoded_msg
             else
               super
             end
           when -194
-            raise ActiveRecord::InvalidForeignKey.new message
+            raise ActiveRecord::InvalidForeignKey.new encoded_msg
           when -196
-            raise ActiveRecord::RecordNotUnique.new message
+            raise ActiveRecord::RecordNotUnique.new encoded_msg
           when -183
-            raise ArgumentError, message
+            raise ArgumentError, encoded_msg
           else
             super
         end
