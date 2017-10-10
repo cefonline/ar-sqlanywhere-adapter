@@ -349,32 +349,28 @@ module ActiveRecord
       # must be captured when generating the SQL and replaced with the appropriate size.
       def type_to_sql(type, limit = nil, precision = nil, scale = nil) #:nodoc:
         type = type.to_sym
-        if native == native_database_types[type]
-          if type == :integer
-            case limit
-              when 1
-                'tinyint'
-              when 2
-                'smallint'
-              when 3..4
-                'integer'
-              when 5..8
-                'bigint'
-              else
-                'integer'
-            end
-          elsif type == :string and !limit.nil?
-             "varchar (#{limit})"
-          elsif type == :boolean
-            'tinyint'
-          elsif type == :binary
-            if limit
-              "binary (#{limit})"
+        if type == :integer
+          case limit
+            when 1
+              'tinyint'
+            when 2
+              'smallint'
+            when 3..4
+              'integer'
+            when 5..8
+              'bigint'
             else
-              "long binary"
-            end
+              'integer'
+          end
+        elsif type == :string and !limit.nil?
+           "varchar (#{limit})"
+        elsif type == :boolean
+          'tinyint'
+        elsif type == :binary
+          if limit
+            "binary (#{limit})"
           else
-            super(type, limit, precision, scale)
+            "long binary"
           end
         else
           super(type, limit, precision, scale)
