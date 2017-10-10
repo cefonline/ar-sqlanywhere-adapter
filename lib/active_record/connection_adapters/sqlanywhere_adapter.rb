@@ -122,6 +122,7 @@ module ActiveRecord
         # Overridden to handle SQL Anywhere integer, varchar, binary, and timestamp types
         def simplified_type(field_type)
           return :integer if field_type =~ /tinyint/i
+          return :string if field_type =~ /varbit/i
           return :boolean if field_type =~ /bit/i
           return :text if field_type =~ /long varchar/i
           return :string if field_type =~ /varchar/i
@@ -348,7 +349,7 @@ module ActiveRecord
       # must be captured when generating the SQL and replaced with the appropriate size.
       def type_to_sql(type, limit = nil, precision = nil, scale = nil) #:nodoc:
         type = type.to_sym
-        if native = native_database_types[type]
+        if native == native_database_types[type]
           if type == :integer
             case limit
               when 1
@@ -630,7 +631,7 @@ SQL
           num_cols = SA.instance.api.sqlany_num_cols(stmt)
           sqlanywhere_error_test(sql) if num_cols == -1
           for i in 0...num_cols
-            result, col_num, name, ruby_type, native_type, precision, scale, max_size, nullable = SA.instance.api.sqlany_get_column_info(stmt, i)
+            result, _, name, _, native_type, _, _, _, _ = SA.instance.api.sqlany_get_column_info(stmt, i)
             sqlanywhere_error_test(sql) if result==0
             fields << name
             native_types << native_type
@@ -640,7 +641,7 @@ SQL
           while SA.instance.api.sqlany_fetch_next(stmt) == 1
             row = []
             for i in 0...num_cols
-              r, value = SA.instance.api.sqlany_get_column(stmt, i)
+              _, value = SA.instance.api.sqlany_get_column(stmt, i)
               row << native_type_to_ruby_type(native_types[i], value)
             end
             rows << row

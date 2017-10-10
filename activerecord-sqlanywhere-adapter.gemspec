@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = %q{activerecord-sqlanywhere-adapter}
-  s.version = "1.1.1"
+  s.version = "1.1.2"
 
   s.authors = [%q{Eric Farar}]
   s.description = %q{ActiveRecord driver for SQL Anywhere}
