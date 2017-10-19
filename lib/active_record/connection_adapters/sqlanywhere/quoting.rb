@@ -28,6 +28,22 @@ module ActiveRecord
           end
         end
 
+        def quoted_false
+          unquoted_false.to_s
+        end
+
+        def unquoted_false
+          0
+        end
+
+        def quoted_true
+          unquoted_true.to_s
+        end
+
+        def unquoted_true
+          1
+        end
+
         private
 
           # Handles the encoding of a binary object into SQL Anywhere
