@@ -29,30 +29,34 @@ module ActiveRecord
       end
 
       def unload_table table_name
-        dbunload([
-          "-d",
-          "-y",
-          "-xi",
-          "-ss",
-          "-t #{table_name}",
-          "-r #{unloaded_sql_file_name(table_name)}"
-        ], UNLOAD_DATA_DIR)
+        dbunload(%W(
+          -q
+          -d
+          -y
+          -xi
+          -ss
+          #{['-t', table_name].join(' ')}
+          #{['-r', unloaded_sql_file_name(table_name)].join(' ')}),
+          UNLOAD_DATA_DIR
+        )
       end
 
       def table_structure_dump table_name, file_name
-        dbunload([
-          "-n",
-          "-t #{table_name}",
-          "-r #{file_name}"
-        ]);
+        dbunload(%W(
+          -q
+          -n
+          #{['-t', table_name].join(' ')}
+          #{['-r', file_name].join(' ')}
+        ))
       end
 
       def structure_dump file_name=STRUCTURE_FILE_NAME_WITH_PATH, flags=[]
-        dbunload([
-          "-y",
-          "-r #{file_name}",
-          "-n"
-        ])
+        dbunload(%W(
+          -y
+          #{['-r', file_name].join(' ')}
+          -n
+          -q
+        ))
       end
 
       def load_table table_name
