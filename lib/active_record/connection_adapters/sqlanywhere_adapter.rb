@@ -95,8 +95,6 @@ module ActiveRecord
         config.each_pair do |k, v|
           connection_string += "#{k}=#{v};"
         end
-
-        connection_string += "Idle=0" # Prevent the server from disconnecting us if we're idle for >240mins (by default)
       end
 
       db = SA.instance.api.sqlany_new_connection()
