@@ -476,10 +476,10 @@ module ActiveRecord
       end
 
       def disable_referential_integrity(&block) #:nodoc:
-        change_around_connection_propery "wait_for_commit", "ON", &block
+        with_connection_property "wait_for_commit", "ON", &block
       end
 
-      def change_around_connection_propery(property_name, property_value, &block)
+      def with_connection_property(property_name, property_value, &block)
         old = select_value("SELECT connection_property( '#{property_name}' )", 'SCHEMA')
 
         begin
