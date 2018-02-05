@@ -488,21 +488,21 @@ module ActiveRecord
         end
       end
 
-     def disable_referential_integrity(&block) #:nodoc:
-       change_around_connection_propery "wait_for_commit", "ON", &block
-     end
+      def disable_referential_integrity(&block) #:nodoc:
+        change_around_connection_propery "wait_for_commit", "ON", &block
+      end
 
-     def change_around_connection_propery(property_name, property_value, &block)
-       old = select_value("SELECT connection_property( '#{property_name}' )", 'SCHEMA')
+      def change_around_connection_propery(property_name, property_value, &block)
+        old = select_value("SELECT connection_property( '#{property_name}' )", 'SCHEMA')
 
-       begin
-         update("SET TEMPORARY OPTION #{property_name} = '#{property_value}'", 'SCHEMA')
-         result = yield
-       ensure
-         update("SET TEMPORARY OPTION #{property_name} = '#{old}'", 'SCHEMA')
-         result
-       end
-     end
+        begin
+          update("SET TEMPORARY OPTION #{property_name} = '#{property_value}'", 'SCHEMA')
+          result = yield
+        ensure
+          update("SET TEMPORARY OPTION #{property_name} = '#{old}'", 'SCHEMA')
+          result
+        end
+      end
 
       protected
         def list_of_tables(types, name = "SCHEMA")
