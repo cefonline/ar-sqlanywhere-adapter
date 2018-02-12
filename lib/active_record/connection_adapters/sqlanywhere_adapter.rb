@@ -161,6 +161,8 @@ module ActiveRecord
 
     class SQLAnywhereAdapter < AbstractAdapter
       include Quoting
+      RAISERROR_FIRST_NUM = 17000
+
       module SQLAnywhereNativeTypes
         MAPPING = {
           0 => :DT_NOTYPE,
@@ -321,7 +323,11 @@ module ActiveRecord
           when -183
             raise ArgumentError, message
           else
-            super
+            if exception.errno <= -RAISERROR_FIRST_NUM
+              raise ActiveRecord::ActiveRecordError.new(message)
+            else
+              super
+            end
         end
       end
 
