@@ -126,6 +126,7 @@ module ActiveRecord
       include SQLAnywhere::Quoting
       attr_reader :connection_string
 
+      SQLE_DATABASE_NOT_FOUND = -83
       ADAPTER_NAME = "SQLAnywhere".freeze
 
       def arel_visitor
@@ -311,7 +312,7 @@ module ActiveRecord
             raise ActiveRecord::InvalidForeignKey.new encoded_msg
           when -196
             raise ActiveRecord::RecordNotUnique.new encoded_msg
-          when -83
+          when SQLE_DATABASE_NOT_FOUND
             raise ActiveRecord::NoDatabaseError.new encoded_msg
           when -183
             raise ArgumentError, encoded_msg
@@ -724,7 +725,7 @@ module ActiveRecord
             set_connection_options
           else
             error = SA.instance.api.sqlany_error(@connection)
-            if error[1] == "Specified database not found"
+            if error.first == SQLE_DATABASE_NOT_FOUND
               raise ActiveRecord::NoDatabaseError
             else
               raise ActiveRecord::ActiveRecordError.new("#{error}: Cannot Establish Connection")
