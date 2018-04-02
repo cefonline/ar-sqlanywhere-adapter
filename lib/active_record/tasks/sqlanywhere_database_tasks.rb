@@ -125,7 +125,7 @@ module ActiveRecord
         end
 
         def establish_utility_db_connection configuration
-          config = configuration.merge(DEFAULT_AUTH.merge "database" => "utility_db")
+          config = configuration.merge(DEFAULT_AUTH.merge "database" => ConnectionAdapters::SQLAnywhereAdapter::UTILITY_DB)
 
           # При коннекте к utility_db параметры берутся из ключей server и database.
           # значение в dbf при этом должно игнорироваться.

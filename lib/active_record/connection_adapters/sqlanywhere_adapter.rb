@@ -126,8 +126,19 @@ module ActiveRecord
       include SQLAnywhere::Quoting
       attr_reader :connection_string
 
+      def utility_db?
+        if @is_utility_db.nil?
+          @is_utility_db = connection_string.split(";").any? do |key_value|
+            k, v = key_value.split("=")
+            ["DatabaseName", "DBN"].include?(k) && [UTILITY_DB, "'#{UTILITY_DB}'", "\"#{UTILITY_DB}\""].include?(v)
+          end
+        end
+        @is_utility_db
+      end
+
       SQLE_DATABASE_NOT_FOUND = -83
       ADAPTER_NAME = "SQLAnywhere".freeze
+      UTILITY_DB = 'utility_db'.freeze
 
       def arel_visitor
         Arel::Visitors::SQLAnywhere.new self
