@@ -310,7 +310,7 @@ module ActiveRecord
       end
 
       def translate_exception(exception, message)
-        encoded_msg = message.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
+        encoded_msg = message.dup.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
         return super unless exception.respond_to?(:errno)
         case exception.errno
           when -143
