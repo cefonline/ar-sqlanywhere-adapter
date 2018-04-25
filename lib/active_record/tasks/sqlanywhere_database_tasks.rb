@@ -43,6 +43,7 @@ module ActiveRecord
         # Невозможности накатить дамп, потому что юзер с идентификатором 1 не обязательно будет тот же юзер, что и в
         # configuration["username"]
         establish_connection_as_dba configuration
+        connection.execute "SET OPTION PUBLIC.reserved_keywords = 'LIMIT'"
         connection.create_admin_user configuration["username"], configuration["password"], configuration["user_id"]
         connection.disconnect!
 
