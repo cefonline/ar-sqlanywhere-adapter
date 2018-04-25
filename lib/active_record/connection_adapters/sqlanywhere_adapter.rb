@@ -386,7 +386,6 @@ module ActiveRecord
         end
       end
 
-      # Do not return SYS-owned or RS_systabgroup-owned
       def tables(name = nil) #:nodoc:
         sql = <<-SQL
           SELECT
@@ -398,7 +397,9 @@ module ActiveRecord
           FROM SYS.SYSTABLE
           WHERE
             SYS.SYSTABLE.table_type = 'BASE' AND
-            SYS.SYSTABLE.creator NOT IN (0,5) AND
+            SYS.SYSTABLE.creator NOT IN (
+              SELECT SYSUSER.user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name in ('SYS','rs_systabgroup')
+            ) AND
             SYS.SYSTABLE.server_type = 'SA'
         SQL
         exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
@@ -416,17 +417,17 @@ module ActiveRecord
           FROM SYS.SYSTAB
           WHERE
             SYS.SYSTAB.table_type_str = 'VIEW' AND
-            SYS.SYSTAB.creator NOT IN (0,5) AND
+            SYS.SYSTAB.creator NOT IN (
+              SELECT SYSUSER.user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name in ('SYS','rs_systabgroup')
+            ) AND
             SYS.SYSTAB.server_type = 1
         SQL
         exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
       end
 
-      def columns(table_name, name = nil) #:nodoc:
-        table_structure(table_name).map do |field|
-          type_metadata = fetch_type_metadata(field['domain'])
-          SQLAnywhereColumn.new(field['name'], field['default'], type_metadata, (field['nulls'] == 1), table_name)
-        end
+      def new_column_from_field table_name, field
+        type_metadata = fetch_type_metadata(field['domain'])
+        SQLAnywhereColumn.new(field['name'], field['default'], type_metadata, (field['nulls'] == 1), table_name)
       end
 
       def indexes(table_name, name = nil) #:nodoc:
@@ -446,8 +447,6 @@ module ActiveRecord
         SQL
 
         exec_query(sql, name).map do |row|
-          index = IndexDefinition.new(table_name, row['index_name'])
-          index.unique = row['unique'] == 1
           sql = <<-SQL
             SELECT column_name
             FROM SYS.SYSIDX
@@ -460,8 +459,12 @@ module ActiveRecord
             WHERE index_name = '#{row['index_name']}'
           SQL
 
-          index.columns = exec_query(sql, name).map { |col| col['column_name'] }
-          index
+          IndexDefinition.new(
+            table_name,
+            row['index_name'],
+            row['unique'] == 1,
+            exec_query(sql, name).map { |col| col['column_name'] }
+          )
         end
       end
 
@@ -727,6 +730,7 @@ module ActiveRecord
           raise(ActiveRecord::StatementInvalid, "Could not find table '#{table_name}'") if structure == false
           structure
         end
+        alias column_definitions table_structure
 
       private
 
