@@ -296,13 +296,7 @@ module ActiveRecord
 
       def sqlanywhere_error_test(sql = '')
         error_code, error_message = SA.instance.api.sqlany_error(@connection)
-        if error_code != 0
-          sqlanywhere_error(
-            error_code,
-            error_message.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8"),
-            sql
-          )
-        end
+        sqlanywhere_error(error_code, encode_sql_value(error_message), sql) if error_code != 0
       end
 
       def sqlanywhere_error(code, message, sql)
@@ -310,7 +304,7 @@ module ActiveRecord
       end
 
       def translate_exception(exception, message)
-        encoded_msg = message.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
+        encoded_msg = encode_sql_value(message)
         return super unless exception.respond_to?(:errno)
         case exception.errno
           when -143
@@ -840,20 +834,26 @@ module ActiveRecord
       end
       alias :exec_update :exec_delete
 
-        # convert sqlany type to ruby type
-        # the types are taken from here
-        # http://dcx.sybase.com/1101/en/dbprogramming_en11/pg-c-api-native-type-enum.html
-        def native_type_to_ruby_type(native_type, value)
-          return nil if value.nil?
-          case native_type
-          when 484 # DT_DECIMAL (also and more importantly numeric)
-            BigDecimal.new(value)
-          when 448,452,456,460,640  # DT_VARCHAR, DT_FIXCHAR, DT_LONGVARCHAR, DT_STRING, DT_LONGNVARCHAR
-            value.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
-          else
-            value
-          end
+      # convert sqlany type to ruby type
+      # the types are taken from here
+      # http://dcx.sybase.com/1101/en/dbprogramming_en11/pg-c-api-native-type-enum.html
+      def native_type_to_ruby_type(native_type, value)
+        return nil if value.nil?
+        case native_type
+        when 484 # DT_DECIMAL (also and more importantly numeric)
+          BigDecimal.new(value)
+        when 448,452,456,460,640  # DT_VARCHAR, DT_FIXCHAR, DT_LONGVARCHAR, DT_STRING, DT_LONGNVARCHAR
+          encode_sql_value(value)
+        else
+          value
         end
+      end
+
+      def encode_sql_value value
+        value.
+          force_encoding(ActiveRecord::Base.connection_config[:CharSet]).
+          encode('UTF-8', invalid: :replace, undef: :replace)
+      end
     end
   end
 end
