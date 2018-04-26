@@ -104,8 +104,10 @@ module ActiveRecord
 
           # Сюда добавлять и другие спец. значения
           # http://dcx.sap.com/index.html#sa160/en/dbreference/create-table-statement.html
-          if /\ATIMESTAMP(?:\(\))?\z/i.match? field['default']
-            default, default_function = nil, "TIMESTAMP"
+          if /\ATIMESTAMP(?:\(\))?\z/i.match?(field['default']) ||
+             /\AAUTOINCREMENT(?:\(\))?\z/i.match?(field['default'])
+          then
+            default, default_function = nil, field['default'].upcase
           else
             default, default_function = field['default'], nil
           end
@@ -265,6 +267,10 @@ module ActiveRecord
           else
             nil
           end
+        end
+
+        def create_schema_dumper(options) # :nodoc:
+          SQLAnywhere::SchemaDumper.create(self, options)
         end
       end
     end

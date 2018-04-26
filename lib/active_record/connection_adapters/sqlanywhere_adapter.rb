@@ -26,6 +26,7 @@ require 'active_record/connection_adapters/abstract_adapter'
 require "active_record/connection_adapters/sqlanywhere/column"
 require 'active_record/connection_adapters/sqlanywhere/quoting'
 require "active_record/connection_adapters/sqlanywhere/schema_statements"
+require "active_record/connection_adapters/sqlanywhere/schema_dumper"
 require 'arel/visitors/sqlanywhere.rb'
 
 # Singleton class to hold a valid instance of the SQLAnywhereInterface across all connections
@@ -451,7 +452,7 @@ module ActiveRecord
               if left("default",1)='''' then
                 substring("default", 2, length("default")-2)
               else
-                NULLIF(SYS.SYSCOLUMN."default", 'autoincrement')
+                SYS.SYSCOLUMN."default"
               endif AS "default",
               IF SYS.SYSCOLUMN.domain_id IN (7,8,9,11,33,34,35,3,27) THEN
                 IF SYS.SYSCOLUMN.domain_id IN (3,27) THEN
