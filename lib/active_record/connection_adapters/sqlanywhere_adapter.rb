@@ -299,7 +299,7 @@ module ActiveRecord
       def sqlanywhere_error_test(sql = '')
         error_code, error_message = SA.instance.api.sqlany_error(@connection)
         if error_code != 0
-          sqlanywhere_error(error_code, error_message, sql)
+          sqlanywhere_error(error_code, encode_sql_value(error_message), sql)
         end
       end
 
@@ -686,10 +686,16 @@ SQL
             SQLAnywhereNativeTypes::DT_STRING,
             SQLAnywhereNativeTypes::DT_LONGNVARCHAR
 
-            value.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
+            encode_sql_value(value)
           else
             value
           end
+        end
+
+        def encode_sql_value value
+          value.
+            force_encoding(ActiveRecord::Base.connection_config[:CharSet]).
+            encode('UTF-8', invalid: :replace, undef: :replace)
         end
     end
   end
