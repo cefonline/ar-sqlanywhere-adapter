@@ -3,11 +3,15 @@ module ActiveRecord
     module SQLAnywhere
       module Quoting # :nodoc:
 
-          # Applies quotations around column names in generated queries
+        def self.quote_ident(ident)
+          # Remove backslashes and double quotes from ident
+          ident = ident.to_s.gsub(/\\|"/, '')
+          %Q("#{ident}")
+        end
+
+        # Applies quotations around column names in generated queries
         def quote_column_name(name) #:nodoc:
-          # Remove backslashes and double quotes from column names
-          name = name.to_s.gsub(/\\|"/, '')
-          %Q("#{name}")
+          Quoting.quote_ident name
         end
 
         def _quote(value, column = nil)

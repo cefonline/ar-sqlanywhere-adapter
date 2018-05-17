@@ -102,14 +102,14 @@ module ActiveRecord
         def new_column_from_field table_name, field
           type_metadata = fetch_type_metadata(field['domain'])
 
-          # Сюда добавлять и другие спец. значения
-          # http://dcx.sap.com/index.html#sa160/en/dbreference/create-table-statement.html
-          if /\ATIMESTAMP(?:\(\))?\z/i.match?(field['default']) ||
-             /\AAUTOINCREMENT(?:\(\))?\z/i.match?(field['default'])
+          # numerics and string literals are default
+          if  /^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/.match?(field['default']) ||
+              /^'.*'$/.match?(field['default']) ||
+              field['default'].nil?
           then
-            default, default_function = nil, field['default'].upcase
-          else
             default, default_function = field['default'], nil
+          else
+            default, default_function = nil, field['default'].upcase
           end
 
           SQLAnywhereColumn.new(
@@ -123,7 +123,7 @@ module ActiveRecord
         end
 
         def indexes(table_name, name = nil) #:nodoc:
-          table_name_parts = table_name.split(".")
+          owner, name = extract_owner_qualified_name(table_name)
 
           sql = <<-SQL
             SELECT DISTINCT index_name, \"unique\"
@@ -131,10 +131,10 @@ module ActiveRecord
             INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id
             INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id
             WHERE
-              SYS.SYSTABLE.table_name = '#{table_name_parts.last}' AND
+              SYS.SYSTABLE.table_name = '#{name}' AND
               index_category > 2 AND
               SYS.SYSTABLE.creator = (
-                SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}'
+                SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{owner}'
               )
           SQL
 
@@ -161,12 +161,12 @@ module ActiveRecord
         end
 
         def primary_key(table_name) #:nodoc:
-          table_name_parts = table_name.split(".")
+          owner, name = extract_owner_qualified_name(table_name)
           sql = <<-SQL
             select cname
             from SYS.SYSCOLUMNS
-            where tname = '#{table_name_parts.last}'
-              and creator = '#{table_name_parts.first}'
+            where tname = '#{name}'
+              and creator = '#{owner}'
               and in_primary_key = 'Y'
           SQL
 
@@ -247,7 +247,7 @@ module ActiveRecord
         end
 
         def primary_keys(table_name) # :nodoc:
-          table_name_parts = table_name.split(".")
+          owner, name = extract_owner_qualified_name(table_name)
           # SQL to get primary keys for a table
           sql = "SELECT list(c.column_name order by ixc.sequence) as pk_columns
             from SYSIDX ix, SYSTABLE t, SYSIDXCOL ixc, SYSCOLUMN c
@@ -257,8 +257,8 @@ module ActiveRecord
               and ixc.table_id = c.table_id
               and ixc.column_id = c.column_id
               and ix.index_category in (1,2)
-              and t.table_name = '#{table_name_parts.last}'
-              and t.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}')
+              and t.table_name = '#{name}'
+              and t.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{owner}')
             group by ix.index_name, ix.index_id, ix.index_category
             order by ix.index_id"
           pks = exec_query(sql, "SCHEMA").to_hash.first
@@ -269,9 +269,80 @@ module ActiveRecord
           end
         end
 
+        def foreign_keys(table_name)
+          owner, name = extract_owner_qualified_name(table_name)
+
+          # Don't support compound fk
+          fk_info = exec_query(<<~SQL, "SCHEMA")
+             select
+                '"' + user_name(systab_p.creator) + '"."' + systab_p.table_name + '"' to_table,
+                systabcol_p.column_name primary_key,
+                systabcol_f.column_name column,
+                sysidx.index_name name,
+                isnull(systrigger_c.referential_action, 'R') on_update,
+                isnull(systrigger_d.referential_action, 'R') on_delete
+            from
+                sys.sysfkey
+                    join sys.sysidxcol sysidxcol_f on sysidxcol_f.table_id = sysfkey.foreign_table_id
+                                               and sysidxcol_f.index_id = sysfkey.foreign_index_id
+                    join sys.sysidxcol sysidxcol_p on sysidxcol_p.table_id = sysfkey.primary_table_id
+                                               and sysidxcol_p.index_id = sysfkey.primary_index_id
+                    join sys.systable systab_f on systab_f.table_id = sysidxcol_f.table_id
+                    join sys.systable systab_p on systab_p.table_id = sysidxcol_p.table_id
+                    join sys.systabcol systabcol_f on  systabcol_f.table_id  = sysidxcol_f.table_id
+                                               and systabcol_f.column_id = sysidxcol_f.column_id
+                    join sys.systabcol systabcol_p on  systabcol_p.table_id  = sysidxcol_p.table_id
+                                               and systabcol_p.column_id = sysidxcol_p.column_id
+                    join sys.sysidx on  sysidx.table_id = sysfkey.foreign_table_id
+                                and sysidx.index_id = sysfkey.foreign_index_id
+                    left outer join sys.systrigger systrigger_c  on  systrigger_c.table_id = sysfkey.primary_table_id
+                                                             and systrigger_c.foreign_table_id = sysfkey.foreign_table_id
+                                                             and systrigger_c.foreign_key_id = sysfkey.foreign_index_id
+                                                             and systrigger_c.event = 'C'
+                    left outer join sys.systrigger systrigger_d  on  systrigger_d.table_id = sysfkey.primary_table_id
+                                                             and systrigger_d.foreign_table_id = sysfkey.foreign_table_id
+                                                             and systrigger_d.foreign_key_id = sysfkey.foreign_index_id
+                                                             and systrigger_d.event = 'D'
+            where
+                        sysidxcol_f.primary_column_id = sysidxcol_p.column_id
+                    and systab_f.table_name = '#{name}'
+                    and systab_f.creator = (select user_id from sys.sysuser where sys.sysuser.user_name = '#{owner}')
+                    and (select count(*) from sysidxcol where sysidxcol.table_id = sysfkey.foreign_table_id and sysidxcol.index_id = sysfkey.foreign_index_id) = 1
+          SQL
+
+          fk_info.map do |row|
+            options = {
+              column: row["column"],
+              name: row["name"],
+              primary_key: row["primary_key"]
+            }
+
+            options[:on_update] = extract_foreign_key_action(row["on_update"])
+            options[:on_delete] = extract_foreign_key_action(row["on_delete"])
+
+            ForeignKeyDefinition.new(table_name, row["to_table"], options)
+          end
+        end
+
         def create_schema_dumper(options) # :nodoc:
           SQLAnywhere::SchemaDumper.create(self, options)
         end
+
+        private
+
+          # http://dcx.sap.com/index.html#sa160/en/dbreference/systrigger-system-view.html
+          def extract_foreign_key_action(specifier)
+            case specifier
+            when "C"; :cascade
+            when "D"; :default
+            when "N"; :nullify
+            when "R"; :restrict
+            end
+          end
+
+          def schema_creation
+            SQLAnywhere::SchemaCreation.new(self)
+          end
       end
     end
   end

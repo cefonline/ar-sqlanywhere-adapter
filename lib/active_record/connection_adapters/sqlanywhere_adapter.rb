@@ -25,8 +25,10 @@
 require 'active_record/connection_adapters/abstract_adapter'
 require "active_record/connection_adapters/sqlanywhere/column"
 require 'active_record/connection_adapters/sqlanywhere/quoting'
+require "active_record/connection_adapters/sqlanywhere/schema_creation"
 require "active_record/connection_adapters/sqlanywhere/schema_statements"
 require "active_record/connection_adapters/sqlanywhere/schema_dumper"
+require "active_record/connection_adapters/sqlanywhere/utils"
 require 'arel/visitors/sqlanywhere.rb'
 
 # Singleton class to hold a valid instance of the SQLAnywhereInterface across all connections
@@ -152,7 +154,7 @@ module ActiveRecord
       end
 
       def quote_table_name table_name
-        table_name.split(".").collect{ |part| quote_column_name(part) }.join(".")
+        SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted.freeze
       end
 
       def initialize( connection, logger, connection_string = "") #:nodoc:
@@ -246,6 +248,10 @@ module ActiveRecord
       end
 
       def supports_autoincrement? #:nodoc:
+        true
+      end
+
+      def supports_foreign_keys?
         true
       end
 
@@ -445,7 +451,8 @@ module ActiveRecord
         # Also, ActiveRecord expects an autoincrement column to have default value of NULL
         # Owner support
         def table_structure(table_name)
-          table_name_parts = table_name.split(".")
+          owner, name = extract_owner_qualified_name table_name
+
           sql = <<-SQL
             SELECT
               SYS.SYSCOLUMN.column_name AS name,
@@ -469,9 +476,9 @@ module ActiveRecord
             INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id
             INNER JOIN  SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
             WHERE
-              table_name = '#{table_name_parts.last}'
+              table_name = '#{name}'
             AND SYS.SYSTABLE.creator = (
-              SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{table_name_parts.first}'
+              SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{owner}'
             )
           SQL
           structure = exec_query(sql, "SCHEMA").to_hash
@@ -491,6 +498,11 @@ module ActiveRecord
         alias column_definitions table_structure
 
       private
+
+        def extract_owner_qualified_name(string)
+          name = SQLAnywhere::Utils.extract_owner_qualified_name(string.to_s)
+          [name.owner, name.identifier]
+        end
 
         def connect!
           result = SA.instance.api.sqlany_connect(@connection, @connection_string)
