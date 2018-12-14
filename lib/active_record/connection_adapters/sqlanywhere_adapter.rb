@@ -650,8 +650,8 @@ module ActiveRecord
           m.register_type %r(datetime)i,          Type::DateTime.new
 
           m.register_type %r(int)i,               Type::Integer.new
-          m.alias_type    %r(smallint)i,          'int'
-          m.alias_type    %r(bigint)i,            'int'
+          m.register_type %r(smallint)i,          Type::Integer.new(limit: 2)
+          m.register_type %r(^bigint)i,           Type::Integer.new(limit: 8)
 
           #register_class_with_limit m, %r(tinyint)i,          Type::Boolean
           #register_class_with_limit m, %r(bit)i,              Type::Boolean
