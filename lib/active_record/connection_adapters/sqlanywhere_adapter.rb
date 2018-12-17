@@ -139,6 +139,10 @@ module ActiveRecord
       SQLE_DATABASE_NOT_FOUND = -83
       ADAPTER_NAME = "SQLAnywhere".freeze
       UTILITY_DB = 'utility_db'.freeze
+      SKIP_ERROR_CODES = [
+        0,
+        100 # При чтении ответа, когда следующей записи нет, не поднимаем ошибку
+      ]
 
       def arel_visitor
         Arel::Visitors::SQLAnywhere.new self
@@ -296,7 +300,7 @@ module ActiveRecord
 
       def sqlanywhere_error_test(sql = '')
         error_code, error_message = SA.instance.api.sqlany_error(@connection)
-        sqlanywhere_error(error_code, encode_sql_value(error_message), sql) if error_code != 0
+        sqlanywhere_error(error_code, encode_sql_value(error_message), sql) unless SKIP_ERROR_CODES.include? error_code
       end
 
       def sqlanywhere_error(code, message, sql)
@@ -806,7 +810,15 @@ module ActiveRecord
             native_types << native_type
           end
           rows = []
-          while SA.instance.api.sqlany_fetch_next(stmt) == 1
+
+          loop do
+            next_res = SA.instance.api.sqlany_fetch_next(stmt)
+
+            if next_res == 0
+              sqlanywhere_error_test(sql)
+              break
+            end
+
             row = []
             for i in 0...num_cols
               r, value = SA.instance.api.sqlany_get_column(stmt, i)
