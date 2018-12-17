@@ -162,6 +162,10 @@ module ActiveRecord
     class SQLAnywhereAdapter < AbstractAdapter
       include Quoting
       RAISERROR_FIRST_NUM = 17000
+      SKIP_ERROR_CODES = [
+        0,
+        100 # При чтении ответа, когда следующей записи нет, не поднимаем ошибку
+      ]
 
       module SQLAnywhereNativeTypes
         MAPPING = {
@@ -298,7 +302,7 @@ module ActiveRecord
 
       def sqlanywhere_error_test(sql = '')
         error_code, error_message = SA.instance.api.sqlany_error(@connection)
-        if error_code != 0
+        unless SKIP_ERROR_CODES.include? error_code
           sqlanywhere_error(error_code, encode_sql_value(error_message), sql)
         end
       end
@@ -643,7 +647,15 @@ SQL
             native_types_hash[name] = SQLAnywhereColumn.new(name, nil, SQLAnywhereNativeTypes::MAPPING[native_type])
           end
           rows = []
-          while SA.instance.api.sqlany_fetch_next(stmt) == 1
+
+          loop do
+            next_res = SA.instance.api.sqlany_fetch_next(stmt)
+
+            if next_res == 0
+              sqlanywhere_error_test(sql)
+              break
+            end
+
             row = []
             for i in 0...num_cols
               _, value = SA.instance.api.sqlany_get_column(stmt, i)
