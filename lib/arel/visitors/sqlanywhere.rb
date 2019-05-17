@@ -19,6 +19,8 @@ module Arel
 
         collector << "SELECT"
 
+        distinct_core = o.cores.find { |core| core.set_quantifier.class == Arel::Nodes::Distinct }
+        collector = maybe_visit distinct_core.set_quantifier, collector unless distinct_core.nil?
         collector = maybe_visit o.limit, collector
         collector = maybe_visit o.offset, collector
 
@@ -39,8 +41,6 @@ module Arel
       end
 
       def visit_Arel_Nodes_SelectCore(o, collector)
-        collector = maybe_visit o.set_quantifier, collector
-
         collect_nodes_for o.projections, collector, " "
 
         if o.source && !o.source.empty?
