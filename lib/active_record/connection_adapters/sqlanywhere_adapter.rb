@@ -639,6 +639,7 @@ module ActiveRecord
 
           m.register_type %r(char)i,            Type::String.new
           m.alias_type    %r(varchar)i,         'char'
+          m.alias_type    %r(varbit)i,          'char'
           m.alias_type    %r(xml)i,             'char'
 
           m.register_type %r(binary)i,            Type::Binary.new
