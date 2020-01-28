@@ -153,14 +153,6 @@ module ActiveRecord
         Arel::Visitors::SQLAnywhere.new self
       end
 
-      def quote_table_name_for_assignment(table, attr)
-        quote_column_name(attr)
-      end
-
-      def quote_table_name table_name
-        SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted.freeze
-      end
-
       def initialize(connection, logger, connection_string, config)
         super(connection, logger, config)
         @auto_commit = true
@@ -377,10 +369,6 @@ module ActiveRecord
         result
       end
 
-
-
-
-
       protected
 
       # === Abstract Adapter (Misc Support) =========================== #
@@ -449,8 +437,8 @@ module ActiveRecord
         # Nullability is returned as 0 (no nulls allowed) or 1 (nulls allowed)
         # Also, ActiveRecord expects an autoincrement column to have default value of NULL
         # Owner support
-        def table_structure(table_name)
-          owner, name = extract_owner_qualified_name table_name
+        def column_definitions(table_name)
+          scope = quoted_scope(table_name)
 
           sql = <<-SQL
             SELECT
@@ -473,12 +461,9 @@ module ActiveRecord
             FROM
               SYS.SYSCOLUMN
             INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id
-            INNER JOIN  SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
-            WHERE
-              table_name = '#{name}'
-            AND SYS.SYSTABLE.creator = (
-              SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{owner}'
-            )
+            INNER JOIN SYS.SYSDOMAIN ON SYS.SYSCOLUMN.domain_id = SYS.SYSDOMAIN.domain_id
+            INNER JOIN SYS.SYSUSER ON SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
+            WHERE SYS.SYSTABLE.table_name = #{scope[:name]} AND SYS.SYSUSER.user_name = #{scope[:owner]}
           SQL
           structure = exec_query(sql, "SCHEMA").to_hash
 
@@ -494,14 +479,8 @@ module ActiveRecord
           raise(ActiveRecord::StatementInvalid, "Could not find table '#{table_name}'") if structure == false
           structure
         end
-        alias column_definitions table_structure
 
       private
-
-        def extract_owner_qualified_name(string)
-          name = SQLAnywhere::Utils.extract_owner_qualified_name(string.to_s)
-          [name.owner, name.identifier]
-        end
 
         def connect!
           result = SA.instance.api.sqlany_connect(@connection, @connection_string)

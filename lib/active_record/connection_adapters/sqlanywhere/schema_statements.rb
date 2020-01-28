@@ -2,11 +2,6 @@ module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
       module SchemaStatements
-        # Maps native ActiveRecord/Ruby types into SQLAnywhere types
-        # TINYINTs are treated as the default boolean value
-        # ActiveRecord allows NULLs in boolean columns, and the SQL Anywhere BIT type does not
-        # As a result, TINYINT must be used. All TINYINT columns will be assumed to be boolean and
-        # should not be used as single-byte integer columns. This restriction is similar to other ActiveRecord database drivers
         def native_database_types #:nodoc:
           {
             :primary_key => 'INTEGER PRIMARY KEY DEFAULT AUTOINCREMENT NOT NULL',
@@ -20,7 +15,7 @@ module ActiveRecord
             :time        => { :name => "time" },
             :date        => { :name => "date" },
             :binary      => { :name => "binary" },
-            :boolean     => { :name => "tinyint", :limit => 1}
+            :boolean     => { :name => "bit"}
           }
         end
 
@@ -43,9 +38,9 @@ module ActiveRecord
                   'integer'
               end
             elsif type == :string and !limit.nil?
-               "varchar (#{limit})"
+              "varchar (#{limit})"
             elsif type == :boolean
-              'tinyint'
+              'bit'
             elsif type == :binary
               if limit
                 "binary (#{limit})"
@@ -60,43 +55,21 @@ module ActiveRecord
           end
         end
 
-        def tables(name = nil) #:nodoc:
-          sql = <<-SQL
-            SELECT
-              (
-                SELECT user_name
-                FROM SYS.SYSUSER
-                WHERE SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
-              ) + '.' + SYS.SYSTABLE.table_name table_name
-            FROM SYS.SYSTABLE
-            WHERE
-              SYS.SYSTABLE.table_type = 'BASE' AND
-              SYS.SYSTABLE.creator NOT IN (
-                SELECT SYSUSER.user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name in ('SYS','rs_systabgroup')
-              ) AND
-              SYS.SYSTABLE.server_type = 'SA'
-          SQL
-          exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
-        end
+        def data_source_sql(name = nil, type: nil)
+          scope = quoted_scope(name, type: type)
+          scope[:type] ||= "'BASE','VIEW'"
 
-        # Returns an array of view names defined in the database.
-        def views(name = nil) #:nodoc:
           sql = <<-SQL
-            SELECT
-              (
-                SELECT user_name
-                FROM SYS.SYSUSER
-                WHERE SYS.SYSUSER.user_id = SYS.SYSTAB.creator
-              ) + '.' + SYS.SYSTAB.table_name table_name
+            SELECT SYS.SYSUSER.user_name + '.' + SYS.SYSTAB.table_name table_name
             FROM SYS.SYSTAB
+            JOIN SYS.SYSUSER ON SYS.SYSUSER.user_id = SYS.SYSTAB.creator
             WHERE
-              SYS.SYSTAB.table_type_str = 'VIEW' AND
-              SYS.SYSTAB.creator NOT IN (
-                SELECT SYSUSER.user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name in ('SYS','rs_systabgroup')
-              ) AND
+              SYS.SYSTAB.table_type_str IN (#{scope[:type]}) AND
+              SYS.SYSUSER.user_name = #{scope[:owner]} AND
               SYS.SYSTAB.server_type = 1
+              #{"AND SYS.SYSTAB.table_name = #{scope[:name]}" if scope[:name]}
           SQL
-          exec_query(sql, 'SCHEMA').map { |row| row["table_name"] }
+          sql
         end
 
         def new_column_from_field table_name, field
@@ -123,19 +96,18 @@ module ActiveRecord
         end
 
         def indexes(table_name, name = nil) #:nodoc:
-          owner, name = extract_owner_qualified_name(table_name)
+          scope = quoted_scope(table_name)
 
           sql = <<-SQL
             SELECT DISTINCT index_name, \"unique\"
             FROM SYS.SYSTABLE
             INNER JOIN SYS.SYSIDXCOL ON SYS.SYSTABLE.table_id = SYS.SYSIDXCOL.table_id
             INNER JOIN SYS.SYSIDX ON SYS.SYSTABLE.table_id = SYS.SYSIDX.table_id AND SYS.SYSIDXCOL.index_id = SYS.SYSIDX.index_id
+            INNER JOIN SYS.SYSUSER ON SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
             WHERE
-              SYS.SYSTABLE.table_name = '#{name}' AND
-              index_category > 2 AND
-              SYS.SYSTABLE.creator = (
-                SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{owner}'
-              )
+              SYS.SYSTABLE.table_name = #{scope[:name]} AND
+              SYS.SYSIDX.index_category > 2 AND
+              SYS.SYSUSER.user_name = #{scope[:owner]}
           SQL
 
           exec_query(sql, name).map do |row|
@@ -161,12 +133,13 @@ module ActiveRecord
         end
 
         def primary_key(table_name) #:nodoc:
-          owner, name = extract_owner_qualified_name(table_name)
+          scope = quoted_scope(table_name)
+
           sql = <<-SQL
             select cname
             from SYS.SYSCOLUMNS
-            where tname = '#{name}'
-              and creator = '#{owner}'
+            where tname = #{scope[:name]}
+              and creator = #{scope[:owner]}
               and in_primary_key = 'Y'
           SQL
 
@@ -199,8 +172,7 @@ module ActiveRecord
         end
 
         def change_column(table_name, column_name, type, options = {}) #:nodoc:
-          add_column_sql = "ALTER TABLE #{quote_table_name(table_name)} ALTER #{quote_column_name(column_name)} #{type_to_sql(type, options[:limit], options[:precision], options[:scale])}"
-          add_column_options!(add_column_sql, options)
+          add_column_sql = "ALTER TABLE #{quote_table_name(table_name)} ALTER #{quote_column_name(column_name)} #{type_to_sql(type, limit: options[:limit], precision: options[:precision], scale: options[:scale])}"
           add_column_sql << ' NULL' if options[:null]
           exec_query(add_column_sql)
         end
@@ -216,20 +188,15 @@ module ActiveRecord
           rename_column_indexes(table_name, column_name, new_column_name)
         end
 
-        def remove_column(table_name, *column_names)
-          raise ArgumentError, "missing column name(s) for remove_column" unless column_names.length>0
-          column_names = column_names.flatten
-          quoted_column_names = column_names.map {|column_name| quote_column_name(column_name) }
-          column_names.zip(quoted_column_names).each do |unquoted_column_name, column_name|
-            sql = <<-SQL
-              SELECT "index_name" FROM SYS.SYSTAB join SYS.SYSTABCOL join SYS.SYSIDXCOL join SYS.SYSIDX
-              WHERE "column_name" = '#{unquoted_column_name}' AND "table_name" = '#{table_name}'
-            SQL
-            select(sql, nil).each do |row|
-              execute "DROP INDEX \"#{table_name}\".\"#{row['index_name']}\""
-            end
-            exec_query "ALTER TABLE #{quote_table_name(table_name)} DROP #{column_name}"
+        def remove_column(table_name, column_name, type = nil, **options)
+          sql = <<-SQL
+            SELECT "index_name" FROM SYS.SYSTAB join SYS.SYSTABCOL join SYS.SYSIDXCOL join SYS.SYSIDX
+            WHERE "column_name" = '#{column_name}' AND "table_name" = '#{table_name}'
+          SQL
+          select(sql, nil).each do |row|
+            execute "DROP INDEX \"#{table_name}\".\"#{row['index_name']}\""
           end
+          exec_query "ALTER TABLE #{quote_table_name(table_name)} DROP #{column_name}"
         end
 
         # SQLA requires the ORDER BY columns in the select list for distinct queries, and
@@ -247,18 +214,18 @@ module ActiveRecord
         end
 
         def primary_keys(table_name) # :nodoc:
-          owner, name = extract_owner_qualified_name(table_name)
+          scope = quoted_scope(table_name)
           # SQL to get primary keys for a table
           sql = "SELECT list(c.column_name order by ixc.sequence) as pk_columns
-            from SYSIDX ix, SYSTABLE t, SYSIDXCOL ixc, SYSCOLUMN c
+            from SYSIDX ix, SYSTABLE t, SYSIDXCOL ixc, SYSCOLUMN c, SYSUSER s
             where ix.table_id = t.table_id
               and ixc.table_id = t.table_id
               and ixc.index_id = ix.index_id
               and ixc.table_id = c.table_id
               and ixc.column_id = c.column_id
               and ix.index_category in (1,2)
-              and t.table_name = '#{name}'
-              and t.creator = (SELECT user_id FROM SYS.SYSUSER WHERE SYS.SYSUSER.user_name = '#{owner}')
+              and t.table_name = #{scope[:name]}
+              and s.user_name = #{scope[:owner]}
             group by ix.index_name, ix.index_id, ix.index_category
             order by ix.index_id"
           pks = exec_query(sql, "SCHEMA").to_hash.first
@@ -270,7 +237,7 @@ module ActiveRecord
         end
 
         def foreign_keys(table_name)
-          owner, name = extract_owner_qualified_name(table_name)
+          scope = quoted_scope(table_name)
 
           # Don't support compound fk
           fk_info = exec_query(<<~SQL, "SCHEMA")
@@ -288,6 +255,7 @@ module ActiveRecord
                     join sys.sysidxcol sysidxcol_p on sysidxcol_p.table_id = sysfkey.primary_table_id
                                                and sysidxcol_p.index_id = sysfkey.primary_index_id
                     join sys.systable systab_f on systab_f.table_id = sysidxcol_f.table_id
+                    join sys.sysuser sysuser_f on sysuser_f.user_id = systab_f.creator
                     join sys.systable systab_p on systab_p.table_id = sysidxcol_p.table_id
                     join sys.systabcol systabcol_f on  systabcol_f.table_id  = sysidxcol_f.table_id
                                                and systabcol_f.column_id = sysidxcol_f.column_id
@@ -305,8 +273,8 @@ module ActiveRecord
                                                              and systrigger_d.event = 'D'
             where
                         sysidxcol_f.primary_column_id = sysidxcol_p.column_id
-                    and systab_f.table_name = '#{name}'
-                    and systab_f.creator = (select user_id from sys.sysuser where sys.sysuser.user_name = '#{owner}')
+                    and systab_f.table_name = #{scope[:name]}
+                    and sysuser_f.user_name = #{scope[:owner]}
                     and (select count(*) from sysidxcol where sysidxcol.table_id = sysfkey.foreign_table_id and sysidxcol.index_id = sysfkey.foreign_index_id) = 1
           SQL
 
@@ -342,6 +310,28 @@ module ActiveRecord
 
           def schema_creation
             SQLAnywhere::SchemaCreation.new(self)
+          end
+
+          def quoted_scope(name = nil, type: nil)
+            owner, name = extract_owner_qualified_name(name)
+            type = \
+              case type
+              when "BASE TABLE"
+                "'BASE'"
+              when "VIEW"
+                "'VIEW'"
+              end
+            scope = {}
+            scope[:owner] = owner ? quote(owner) : "ANY(SELECT user_name FROM SYS.SYSUSER WHERE user_type NOT IN (1,9))"
+            scope[:name] = quote(name) if name
+            scope[:type] = type
+            scope
+          end
+
+          def extract_owner_qualified_name(string)
+            name = Utils.extract_owner_qualified_name(string.to_s)
+
+            [name.owner, name.identifier]
           end
       end
     end

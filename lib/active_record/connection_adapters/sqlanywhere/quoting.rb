@@ -9,6 +9,14 @@ module ActiveRecord
           %Q("#{ident}")
         end
 
+        def quote_table_name_for_assignment(table, attr)
+          quote_column_name(attr)
+        end
+
+        def quote_table_name table_name
+          SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted.freeze
+        end
+
         # Applies quotations around column names in generated queries
         def quote_column_name(name) #:nodoc:
           Quoting.quote_ident name
