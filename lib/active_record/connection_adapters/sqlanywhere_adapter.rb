@@ -81,36 +81,36 @@ module ActiveRecord
       if config[:connection_string]
         connection_string = config[:connection_string]
       else
-        config = DEFAULT_CONFIG.merge(config)
+        conn_config = DEFAULT_CONFIG.merge(config.dup)
 
-        raise ArgumentError, "No database name was given. Please add a :database option." unless config.has_key?(:database)
+        raise ArgumentError, "No database name was given. Please add a :database option." unless conn_config.has_key?(:database)
 
-        connection_string  = "ServerName=#{(config.delete(:server) || config.delete(:database))};"
-        connection_string += "DatabaseName=#{config.delete(:database)};"
-        connection_string += "UserID=#{config.delete(:username)};"
-        connection_string += "Password=#{config.delete(:password)};"
-        connection_string += "CommLinks=#{config.delete(:commlinks)};" unless config[:commlinks].nil?
-        connection_string += "ConnectionName=#{config.delete(:connection_name)};" unless config[:connection_name].nil?
-        connection_string += "CharSet=#{config.delete(:encoding)};" unless config[:encoding].nil?
+        connection_string  = "ServerName=#{(conn_config.delete(:server) || conn_config.delete(:database))};"
+        connection_string += "DatabaseName=#{conn_config.delete(:database)};"
+        connection_string += "UserID=#{conn_config.delete(:username)};"
+        connection_string += "Password=#{conn_config.delete(:password)};"
+        connection_string += "CommLinks=#{conn_config.delete(:commlinks)};" if config[:commlinks]
+        connection_string += "ConnectionName=#{conn_config.delete(:connection_name)};" if config[:connection_name]
+        connection_string += "CharSet=#{conn_config.delete(:encoding)};" if config[:encoding]
 
         # Since we are using default ConnectionPool class
         # and SqlAnywhere uses CPOOL variable for connection
         # we have to delete pool if it is available
-        config.delete(:pool)
-        config.delete(:adapter)
+        conn_config.delete(:pool)
+        conn_config.delete(:adapter)
+        conn_config.delete(:blocking_timeout)
 
-
-        config.except! *CREATE_DB_CONFIG
+        conn_config.except! *CREATE_DB_CONFIG
 
         # Then add all other connection settings
-        config.each_pair do |k, v|
+        conn_config.each_pair do |k, v|
           connection_string += "#{k}=#{v};"
         end
       end
 
       db = SA.instance.api.sqlany_new_connection()
 
-      ConnectionAdapters::SQLAnywhereAdapter.new(db, logger, connection_string)
+      ConnectionAdapters::SQLAnywhereAdapter.new(db, logger, connection_string, config)
     end
   end
 
@@ -144,6 +144,10 @@ module ActiveRecord
       SQLE_DATABASE_NOT_FOUND = -83
       ADAPTER_NAME = "SQLAnywhere".freeze
       UTILITY_DB = 'utility_db'.freeze
+      SKIP_ERROR_CODES = [
+        0,
+        100 # При чтении ответа, когда следующей записи нет, не поднимаем ошибку
+      ]
 
       def arel_visitor
         Arel::Visitors::SQLAnywhere.new self
@@ -157,8 +161,8 @@ module ActiveRecord
         SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted.freeze
       end
 
-      def initialize( connection, logger, connection_string = "") #:nodoc:
-        super(connection, logger)
+      def initialize(connection, logger, connection_string, config)
+        super(connection, logger, config)
         @auto_commit = true
         @affected_rows = 0
         @connection_string = connection_string
@@ -270,26 +274,20 @@ module ActiveRecord
           sqlanywhere_error_test(sql) if r==0
           @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
           sqlanywhere_error_test(sql) if @affected_rows==-1
-        rescue StandardError => e
-          @affected_rows = 0
-          SA.instance.api.sqlany_rollback @connection
-          raise e
-        ensure
           SA.instance.api.sqlany_free_stmt(stmt)
           SA.instance.api.sqlany_commit(@connection) if @auto_commit
+        rescue StandardError => e
+          @affected_rows = 0
+          SA.instance.api.sqlany_free_stmt(stmt)
+          SA.instance.api.sqlany_rollback @connection
+          raise e
         end
         @affected_rows
       end
 
       def sqlanywhere_error_test(sql = '')
         error_code, error_message = SA.instance.api.sqlany_error(@connection)
-        if error_code != 0
-          sqlanywhere_error(
-            error_code,
-            error_message.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8"),
-            sql
-          )
-        end
+        sqlanywhere_error(error_code, encode_sql_value(error_message), sql) unless SKIP_ERROR_CODES.include? error_code
       end
 
       def sqlanywhere_error(code, message, sql)
@@ -297,7 +295,7 @@ module ActiveRecord
       end
 
       def translate_exception(exception, message)
-        encoded_msg = message.dup.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
+        encoded_msg = encode_sql_value(message.dup)
         return super unless exception.respond_to?(:errno)
         case exception.errno
           when -143
@@ -408,6 +406,7 @@ module ActiveRecord
 
           m.register_type %r(char)i,            Type::String.new
           m.alias_type    %r(varchar)i,         'char'
+          m.alias_type    %r(varbit)i,          'char'
           m.alias_type    %r(xml)i,             'char'
 
           m.register_type %r(binary)i,            Type::Binary.new
@@ -423,8 +422,8 @@ module ActiveRecord
           m.register_type %r(datetime)i,          Type::DateTime.new
 
           m.register_type %r(int)i,               Type::Integer.new
-          m.alias_type    %r(smallint)i,          'int'
-          m.alias_type    %r(bigint)i,            'int'
+          m.register_type %r(smallint)i,          Type::Integer.new(limit: 2)
+          m.register_type %r(^bigint)i,           Type::Integer.new(limit: 8)
 
           #register_class_with_limit m, %r(tinyint)i,          Type::Boolean
           #register_class_with_limit m, %r(bit)i,              Type::Boolean
@@ -519,11 +518,18 @@ module ActiveRecord
         end
 
         def set_connection_options
-          SA.instance.api.sqlany_execute_immediate(@connection, "SET TEMPORARY OPTION non_keywords = 'LOGIN'") rescue nil
-          SA.instance.api.sqlany_execute_immediate(@connection, "SET TEMPORARY OPTION timestamp_format = 'YYYY-MM-DD HH:NN:SS'") rescue nil
-          #SA.instance.api.sqlany_execute_immediate(@connection, "SET OPTION reserved_keywords = 'LIMIT'") rescue nil
+          SA.instance.api.sqlany_execute_immediate(@connection, "SET TEMPORARY OPTION non_keywords = 'LOGIN'")
+          SA.instance.api.sqlany_execute_immediate(@connection, "SET TEMPORARY OPTION timestamp_format = 'YYYY-MM-DD HH:NN:SS'")
+          #SA.instance.api.sqlany_execute_immediate(@connection, "SET OPTION reserved_keywords = 'LIMIT'")
           # The liveness variable is used a low-cost "no-op" to test liveness
-          SA.instance.api.sqlany_execute_immediate(@connection, "CREATE VARIABLE liveness INT") rescue nil
+          SA.instance.api.sqlany_execute_immediate(@connection, "CREATE VARIABLE liveness INT")
+          if @config[:blocking_timeout]
+            SA.instance.api.sqlany_execute_immediate(
+              @connection,
+              "SET TEMPORARY OPTION blocking_timeout = #{@config[:blocking_timeout]}"
+            )
+          end
+        rescue nil
         end
 
       def exec_query sql, name = nil, binds = [], prepare = false
@@ -586,7 +592,15 @@ module ActiveRecord
             native_types << native_type
           end
           rows = []
-          while SA.instance.api.sqlany_fetch_next(stmt) == 1
+
+          loop do
+            next_res = SA.instance.api.sqlany_fetch_next(stmt)
+
+            if next_res == 0
+              sqlanywhere_error_test(sql)
+              break
+            end
+
             row = []
             for i in 0...num_cols
               r, value = SA.instance.api.sqlany_get_column(stmt, i)
@@ -596,13 +610,13 @@ module ActiveRecord
           end
           @affected_rows = SA.instance.api.sqlany_affected_rows(stmt)
           sqlanywhere_error_test(sql) if @affected_rows==-1
-        rescue StandardError => e
-          @affected_rows = 0
-          SA.instance.api.sqlany_rollback @connection
-          raise e
-        ensure
           SA.instance.api.sqlany_free_stmt(stmt)
           SA.instance.api.sqlany_commit(@connection) if @auto_commit
+        rescue StandardError => e
+          @affected_rows = 0
+          SA.instance.api.sqlany_free_stmt(stmt)
+          SA.instance.api.sqlany_rollback @connection
+          raise e
         end
 
         ActiveRecord::Result.new(fields, rows)
@@ -614,20 +628,26 @@ module ActiveRecord
       end
       alias :exec_update :exec_delete
 
-        # convert sqlany type to ruby type
-        # the types are taken from here
-        # http://dcx.sybase.com/1101/en/dbprogramming_en11/pg-c-api-native-type-enum.html
-        def native_type_to_ruby_type(native_type, value)
-          return nil if value.nil?
-          case native_type
-          when 484 # DT_DECIMAL (also and more importantly numeric)
-            BigDecimal.new(value)
-          when 448,452,456,460,640  # DT_VARCHAR, DT_FIXCHAR, DT_LONGVARCHAR, DT_STRING, DT_LONGNVARCHAR
-            value.force_encoding(ActiveRecord::Base.connection_config['encoding'] || "UTF-8")
-          else
-            value
-          end
+      # convert sqlany type to ruby type
+      # the types are taken from here
+      # http://dcx.sybase.com/1101/en/dbprogramming_en11/pg-c-api-native-type-enum.html
+      def native_type_to_ruby_type(native_type, value)
+        return nil if value.nil?
+        case native_type
+        when 484 # DT_DECIMAL (also and more importantly numeric)
+          BigDecimal(value)
+        when 448,452,456,460,640  # DT_VARCHAR, DT_FIXCHAR, DT_LONGVARCHAR, DT_STRING, DT_LONGNVARCHAR
+          encode_sql_value(value)
+        else
+          value
         end
+      end
+
+      def encode_sql_value value
+        value.
+          force_encoding(ActiveRecord::Base.connection_config[:CharSet]).
+          encode('UTF-8', invalid: :replace, undef: :replace)
+      end
     end
   end
 end
