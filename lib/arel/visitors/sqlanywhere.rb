@@ -22,7 +22,13 @@ module Arel
         distinct_core = o.cores.find { |core| core.set_quantifier.class == Arel::Nodes::Distinct }
         collector = maybe_visit distinct_core.set_quantifier, collector unless distinct_core.nil?
         collector = maybe_visit o.limit, collector
-        collector = maybe_visit o.offset, collector if o.offset && o.offset.expr.value.value > 0
+
+        if o.offset
+          offset = Arel::Nodes::Offset.new(o.offset.expr.value.value + 1)
+          o.offset = nil
+
+          collector = maybe_visit offset, collector
+        end
 
         collector = o.cores.inject(collector) { |c,x|
           visit_Arel_Nodes_SelectCore(x, c)
