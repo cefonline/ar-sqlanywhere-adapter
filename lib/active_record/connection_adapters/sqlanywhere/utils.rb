@@ -22,7 +22,7 @@ module ActiveRecord
 
         def quoted
           if owner
-            SQLAnywhere::Quoting.quote_ident(owner) << SEPARATOR << SQLAnywhere::Quoting.quote_ident(identifier)
+            SQLAnywhere::Quoting.quote_ident(owner) + SEPARATOR + SQLAnywhere::Quoting.quote_ident(identifier)
           else
             SQLAnywhere::Quoting.quote_ident(identifier)
           end

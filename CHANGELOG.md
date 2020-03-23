@@ -1,16 +1,23 @@
-=CHANGE LOG
+## 3.0.0
 
-=====0.2.0 -- 2010/12/02
+- Migrate to SQLAnywhere2 gem
+- Cleanup project structure
+- Add frozen_string_literal magic comment
+
+## 0.2.0
+
 - Added support for Rails 3.0.3
 - Added support for Arel 2
 - Removed test instructions for ActiveRecord 2.2.2
 - Updated license to 2010
 
-=====0.1.3 -- 2010/02/01
+## 0.1.3
+
 - Added :encoding option to connection string
 - Fixed bug associated with dangling connections in development mode (http://groups.google.com/group/sql-anywhere-web-development/browse_thread/thread/79fa81bdfcf84c13/e29074e5b8b7ad6a?lnk=gst&q=activerecord#e29074e5b8b7ad6a)
 
-=====0.1.2 -- 2008/12/30
+## 0.1.2
+
 - Fixed bug in ActiveRecord::ConnectionAdapters::SQLAnywhereAdapter#table_structure SQL (Paul Smith)
 - Added options for :commlinks and :connection_name to database.yml configuration (Paul Smith)
 - Fixed ActiveRecord::ConnectionAdapters::SQLAnywhereColumn.string_to_binary and binary_to_string  (Paul Smith)
@@ -22,12 +29,13 @@
 - Formatted code
 - Fixed bug to raise proper exceptions when a query with a bad column in executed
 
-=====0.1.1 -- 2008/11/06
+## 0.1.1
+
 - Changed file permissions on archives
 - Changed archives to be specific to platform (.zip on windows, .tar.gz
 otherwise)
 - Removed the default rake task
 
-=====0.1.0 -- 2008/10/15
-- Initial Release
+## 0.1.0
 
+- Initial Release

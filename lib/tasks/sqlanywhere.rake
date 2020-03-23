@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 namespace :asa do
   desc "run test server"
   task :run_server do |task, args|

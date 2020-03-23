@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
@@ -14,7 +15,7 @@ module ActiveRecord
         end
 
         def quote_table_name table_name
-          SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted.freeze
+          SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted
         end
 
         # Applies quotations around column names in generated queries
@@ -24,19 +25,15 @@ module ActiveRecord
 
         def _quote(value, column = nil)
           case value
-            when Type::Binary::Data
-              "'#{string_to_binary(value.to_s)}'"
-            else
-              super(value)
+          when Type::Binary::Data then "'#{string_to_binary(value.to_s)}'"
+          else super(value)
           end
         end
 
         def _type_cast(value)
           case value
-            when Type::Binary::Data
-              string_to_binary(value.to_s)
-            else
-              super(value)
+          when Type::Binary::Data then string_to_binary(value.to_s)
+          else super(value)
           end
         end
 

@@ -1,10 +1,9 @@
 # frozen_string_literal: true
 
-module ActiveRecord
+module Activerecord
   module ConnectionAdapters
     module SQLAnywhere
-      class Column < ConnectionAdapters::Column #:nodoc:
-      end
+      VERSION = "3.0.0"
     end
   end
 end

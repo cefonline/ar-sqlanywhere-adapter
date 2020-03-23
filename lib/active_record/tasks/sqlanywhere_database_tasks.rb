@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "tempfile"
 
 # https://github.com/rails/rails/blob/5-1-stable/activerecord/lib/active_record/tasks/postgresql_database_tasks.rb

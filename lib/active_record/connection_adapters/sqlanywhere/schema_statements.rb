@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
@@ -85,7 +87,7 @@ module ActiveRecord
             default, default_function = nil, field['default'].upcase
           end
 
-          SQLAnywhereColumn.new(
+          SQLAnywhere::Column.new(
             field['name'],
             default,
             type_metadata,
