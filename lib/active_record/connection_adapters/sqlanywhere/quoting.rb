@@ -26,6 +26,9 @@ module ActiveRecord
         def _quote(value, column = nil)
           case value
           when Type::Binary::Data then "'#{string_to_binary(value.to_s)}'"
+          # This by default returns a value with ASCII_8BIT encoding which is a binary type in SQLAnywhere2
+          # So we convert it to correct connection type
+          when BigDecimal then super(value).encode(@connection.encoding)
           else super(value)
           end
         end
@@ -33,6 +36,9 @@ module ActiveRecord
         def _type_cast(value)
           case value
           when Type::Binary::Data then string_to_binary(value.to_s)
+          # This by default returns a value with ASCII_8BIT encoding which is a binary type in SQLAnywhere2
+          # So we convert it to correct connection type
+          when BigDecimal then super(value).encode(@connection.encoding)
           else super(value)
           end
         end
