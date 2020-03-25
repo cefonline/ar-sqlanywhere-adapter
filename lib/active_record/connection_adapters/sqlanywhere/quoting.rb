@@ -25,20 +25,26 @@ module ActiveRecord
 
         def _quote(value, column = nil)
           case value
+          # We might receive values with wrong encoding. Convert them to correct encoding.
+          # dup the value since it might be Frozen
+          when String, ActiveSupport::Multibyte::Chars then super(value).dup.force_encoding(@connection.encoding)
           when Type::Binary::Data then "'#{string_to_binary(value.to_s)}'"
           # This by default returns a value with ASCII_8BIT encoding which is a binary type in SQLAnywhere2
           # So we convert it to correct connection type
-          when BigDecimal then super(value).encode(@connection.encoding)
+          when BigDecimal then super(value).force_encoding(@connection.encoding)
           else super(value)
           end
         end
 
         def _type_cast(value)
           case value
+          # We might receive values with wrong encoding. Convert them to correct encoding
+          # dup the value since it might be Frozen
+          when String, ActiveSupport::Multibyte::Chars then super(value).dup.force_encoding(@connection.encoding)
           when Type::Binary::Data then string_to_binary(value.to_s)
           # This by default returns a value with ASCII_8BIT encoding which is a binary type in SQLAnywhere2
           # So we convert it to correct connection type
-          when BigDecimal then super(value).encode(@connection.encoding)
+          when BigDecimal then super(value).force_encoding(@connection.encoding)
           else super(value)
           end
         end
