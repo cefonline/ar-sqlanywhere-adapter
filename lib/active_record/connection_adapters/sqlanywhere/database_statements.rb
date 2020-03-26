@@ -84,13 +84,17 @@ module ActiveRecord
         end
 
         def commit_db_transaction
-          execute("COMMIT")
+          ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
+            log('COMMIT') { @connection.commit }
+          end
         ensure
           @auto_commit = true
         end
 
         def exec_rollback_db_transaction
-          execute("ROLLBACK")
+          ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
+            log('ROLLBACK') { @connection.rollback }
+          end
         ensure
           @auto_commit = true
         end
@@ -139,12 +143,6 @@ module ActiveRecord
           end
         end
 
-        def execute_immediate(sql)
-          ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
-            @connection.execute_immediate(sql)
-          end
-        end
-
         def execute_stmt_with_binds(sql, type_casted_binds = [], &block)
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
             stmt = @connection.prepare(sql)
@@ -153,13 +151,13 @@ module ActiveRecord
               result = stmt.execute(*type_casted_binds)
             rescue SQLAnywhere2::Error => e
               stmt.close
-              @connection.execute_immediate("ROLLBACK") if @auto_commit
+              @connection.rollback if @auto_commit
               raise e
             end
 
             ret = yield stmt, result if block_given?
             stmt.close
-            @connection.execute_immediate("COMMIT") if @auto_commit
+            @connection.commit if @auto_commit
             ret
           end
         end
