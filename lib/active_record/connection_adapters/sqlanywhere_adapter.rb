@@ -200,6 +200,10 @@ module ActiveRecord
         result
       end
 
+      def sqlanywhere_version # :nodoc:
+        @sqlanywhere_version ||= Version.new(select_value("select xp_msver('ProductVersion')"))
+      end
+
       protected
 
       def extract_limit(sql_type)

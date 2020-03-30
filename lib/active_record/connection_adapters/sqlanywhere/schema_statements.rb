@@ -324,7 +324,7 @@ module ActiveRecord
                 "'VIEW'"
               end
             scope = {}
-            scope[:owner] = owner ? quote(owner) : "ANY(SELECT user_name FROM SYS.SYSUSER WHERE user_type NOT IN (1,9))"
+            scope[:owner] = owner ? quote(owner) : "ANY(SELECT user_name FROM SYS.SYSUSER WHERE user_name != 'SYS')"
             scope[:name] = quote(name) if name
             scope[:type] = type
             scope
