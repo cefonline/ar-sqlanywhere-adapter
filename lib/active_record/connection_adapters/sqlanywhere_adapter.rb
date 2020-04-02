@@ -153,18 +153,14 @@ module ActiveRecord
         case error_number(exception)
         when -83
           raise ActiveRecord::NoDatabaseError.new(message)
-        when -143
-          if exception.sql !~ /^SELECT/i then
-            raise ActiveRecord::ActiveRecordError.new(message)
-          else
-            super
-          end
         when -194
           raise ActiveRecord::InvalidForeignKey.new(message)
+        when -195
+          raise ActiveRecord::NotNullViolation.new(message)
         when -196
           raise ActiveRecord::RecordNotUnique.new(message)
-        when -183
-          raise ArgumentError.new(message)
+        when -306
+          raise ActiveRecord::Deadlocked.new(message)
         else
           super
         end
