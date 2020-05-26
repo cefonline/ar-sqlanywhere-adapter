@@ -1,3 +1,30 @@
+## 3.0.6
+
+- Fix transaction isolation not returning previous isolation level
+- Fix COMMIT log name
+
+## 3.0.5
+
+- Fix SQLAnywhere error code to ActiveRecord errors mapping
+
+## 3.0.4
+
+- Fix compatibility issue with SQLAnywhere 12
+- Add sqlanywhere_version method
+
+## 3.0.3
+
+- Remove `execute_immediate` method
+- Change COMMIT and ROLLBACK commands to instead use commit/rollback methods from SQLAnywhere2
+
+## 3.0.2
+
+- Fix Binary not inserting correctly
+
+## 3.0.1
+
+- Fix BigDecimal not inserting correctly
+
 ## 3.0.0
 
 - Migrate to SQLAnywhere2 gem
