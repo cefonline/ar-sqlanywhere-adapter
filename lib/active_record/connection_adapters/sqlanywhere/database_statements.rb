@@ -72,6 +72,21 @@ module ActiveRecord
           select('SELECT @@IDENTITY', 'SCHEMA').first["@@IDENTITY"]
         end
 
+        def current_isolation_level
+          level = case select_value("SELECT CONNECTION_PROPERTY('isolation_level')")
+          when "0" then :read_uncommitted
+          when "1" then :read_committed
+          when "2" then :repeatable_read
+          when "3" then :serializable
+          end
+
+          transaction_isolation_levels.fetch(level)
+        end
+
+        def set_transaction_isolation_level(isolation_level)
+          execute("SET TRANSACTION ISOLATION LEVEL #{isolation_level}")
+        end
+
         def begin_db_transaction
           @auto_commit = false
           execute("BEGIN TRANSACTION")
@@ -79,13 +94,13 @@ module ActiveRecord
 
         def begin_isolated_db_transaction(isolation)
           @auto_commit = false
-          execute("SET TRANSACTION ISOLATION LEVEL #{transaction_isolation_levels.fetch(isolation)}")
+          set_transaction_isolation_level(transaction_isolation_levels.fetch(isolation))
           begin_db_transaction
         end
 
         def commit_db_transaction
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
-            log('COMMIT') { @connection.commit }
+            log('COMMIT', nil) { @connection.commit }
           end
         ensure
           @auto_commit = true
@@ -93,7 +108,7 @@ module ActiveRecord
 
         def exec_rollback_db_transaction
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
-            log('ROLLBACK') { @connection.rollback }
+            log('ROLLBACK', nil) { @connection.rollback }
           end
         ensure
           @auto_commit = true

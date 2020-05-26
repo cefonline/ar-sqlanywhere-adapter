@@ -27,6 +27,7 @@ require "sqlanywhere2"
 require "active_record"
 require "arel_sqlanywhere"
 require "active_record/connection_adapters/abstract_adapter"
+require "active_record/connection_adapters/abstract/transaction_extension"
 require "active_record/connection_adapters/sqlanywhere/column"
 require "active_record/connection_adapters/sqlanywhere/quoting"
 require "active_record/connection_adapters/sqlanywhere/schema_creation"
@@ -198,6 +199,10 @@ module ActiveRecord
 
       def sqlanywhere_version # :nodoc:
         @sqlanywhere_version ||= Version.new(select_value("select xp_msver('ProductVersion')"))
+      end
+
+      def sqlanywhere?
+        true
       end
 
       protected
