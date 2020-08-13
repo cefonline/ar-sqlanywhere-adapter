@@ -1,3 +1,9 @@
+## 3.0.7
+
+- Fix database setup rake tasks
+- Add create_database, start_database, create_user, drop_user methods
+- Remove `asa` rake tasks
+
 ## 3.0.6
 
 - Fix transaction isolation not returning previous isolation level
