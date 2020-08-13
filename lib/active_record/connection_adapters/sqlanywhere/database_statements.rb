@@ -4,18 +4,6 @@ module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
       module DatabaseStatements
-        UTILITY_DB = 'utility_db'
-
-        def utility_db?
-          if @is_utility_db.nil?
-            @is_utility_db = @connection_string.split(";").any? do |key_value|
-              k, v = key_value.split("=")
-              ["DatabaseName", "DBN"].include?(k) && [UTILITY_DB, "'#{UTILITY_DB}'", "\"#{UTILITY_DB}\""].include?(v)
-            end
-          end
-          @is_utility_db
-        end
-
         def current_database
           select_value "SELECT DB_PROPERTY('Name')", "SCHEMA"
         end
@@ -44,28 +32,47 @@ module ActiveRecord
           execute "TRUNCATE TABLE #{quote_table_name table_name}"
         end
 
-        def start_database dbf, dbname
-          execute "START DATABASE '#{dbf}' AS #{dbname} AUTOSTOP OFF"
+        def create_database(name, options = {})
+          options = options.symbolize_keys
+
+          sql = "CREATE DATABASE '#{name}'"
+          sql += " BLANK PADDING #{options[:blank_padding] ? "ON" : "OFF"}" if options[:blank_padding]
+          sql += " CHECKSUM #{options[:checksum] ? "ON" : "OFF"}" if options[:checksum]
+          sql += " COLLATION '#{options[:collation]}'" if options[:collation]
+          sql += " JCONNECT #{options[:jconnect] ? "ON" : "OFF"}" if options[:jconnect]
+          sql += " PAGE SIZE #{options[:page_size]}" if options[:page_size]
+          sql += " NCHAR COLLATION '#{options[:ncollation]}'" if options[:ncollation]
+          if options[:system_proc_as_definer]
+            sql += " SYSTEM PROCEDURE AS DEFINER #{options[:system_proc_as_definer] ? "ON" : "OFF"}"
+          end
+
+          execute sql
         end
 
-        def stop_database database
-          execute("STOP DATABASE #{database} UNCONDITIONALLY")
+        def start_database name
+          execute "START DATABASE '#{name}' AUTOSTOP OFF"
         rescue ActiveRecord::StatementInvalid => error # Если БД нет, то все ОК
           raise unless error.is_a? ActiveRecord::NoDatabaseError
         end
 
-        def drop_database dbf
-          execute("DROP DATABASE '#{dbf}'")
+        def stop_database name
+          execute("STOP DATABASE #{name} UNCONDITIONALLY")
         rescue ActiveRecord::StatementInvalid => error # Если БД нет, то все ОК
           raise unless error.is_a? ActiveRecord::NoDatabaseError
         end
 
-        # id нужен для того, что бы созадть пользователя под тем же идентификатором, под котором он заведен в продакшен
-        # это позволит в дальнейшем накатить дамп
-        def create_admin_user username, password, id=nil
-          at_part = id.present? ? "AT #{id}" : ""
-          execute "GRANT CONNECT TO \"#{username}\" #{at_part} IDENTIFIED BY '#{password}';"
-          execute "GRANT ROLE \"SYS_AUTH_DBA_ROLE\" TO \"#{username}\"  WITH ADMIN OPTION WITH NO SYSTEM PRIVILEGE INHERITANCE;"
+        def drop_database name
+          execute("DROP DATABASE '#{name}'")
+        rescue ActiveRecord::StatementInvalid => error # Если БД нет, то все ОК
+          raise unless error.is_a? ActiveRecord::NoDatabaseError
+        end
+
+        def create_user name, password
+          execute("CREATE USER #{name} IDENTIFIED BY #{password}")
+        end
+
+        def drop_user name
+          execute("DROP USER #{name}")
         end
 
         def last_inserted_id(result)

@@ -39,25 +39,24 @@ require "active_record/connection_adapters/sqlanywhere/version"
 
 module ActiveRecord
   module ConnectionHandling
-    DEFAULT_CONFIG = { :username => 'dba', :password => 'sql' }
-    CREATE_DB_CONFIG = %i(collation ncollation page_size jconnect checksum system_proc_as_definer blank_padding user_id)
+    CREATE_DB_CONFIG = %i(collation ncollation page_size jconnect checksum system_proc_as_definer blank_padding)
     SQLE_DATABASE_NOT_FOUND = -83
 
     def sqlanywhere_connection(config)
       if config[:connection_string]
         connection_string = config[:connection_string]
       else
-        conn_config = DEFAULT_CONFIG.merge(config.dup)
+        conn_config = config.dup
 
         raise ArgumentError, "No database name was given. Please add a :database option." unless conn_config.has_key?(:database)
 
-        connection_string  = "ServerName=#{(conn_config.delete(:server) || conn_config.delete(:database))};"
-        connection_string += "DatabaseName=#{conn_config.delete(:database)};"
-        connection_string += "UserID=#{conn_config.delete(:username)};"
-        connection_string += "Password=#{conn_config.delete(:password)};"
-        connection_string += "CommLinks=#{conn_config.delete(:commlinks)};" if config[:commlinks]
-        connection_string += "ConnectionName=#{conn_config.delete(:connection_name)};" if config[:connection_name]
-        connection_string += "CharSet=#{conn_config.delete(:encoding)};" if config[:encoding]
+        connection_string  = "ENG=#{(conn_config.delete(:server))};"
+        connection_string += "DBN=#{conn_config.delete(:database)};"
+        connection_string += "UID=#{conn_config.delete(:username)};"
+        connection_string += "PWD=#{conn_config.delete(:password)};"
+        connection_string += "LINKS=#{conn_config.delete(:commlinks)};" if config[:commlinks]
+        connection_string += "CON=#{conn_config.delete(:connection_name)};" if config[:connection_name]
+        connection_string += "CS=#{conn_config.delete(:encoding)};" if config[:encoding]
 
         # Since we are using default ConnectionPool class
         # and SqlAnywhere uses CPOOL variable for connection
