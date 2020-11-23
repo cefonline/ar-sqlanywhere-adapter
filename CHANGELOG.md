@@ -1,3 +1,7 @@
+## 3.0.8
+
+- Fix ruby VM crash when a prepared statement has a large number of parameters
+
 ## 3.0.7
 
 - Fix database setup rake tasks
