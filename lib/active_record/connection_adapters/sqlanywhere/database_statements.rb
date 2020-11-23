@@ -4,6 +4,8 @@ module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
       module DatabaseStatements
+        BIND_LIMIT = 32767
+
         def current_database
           select_value "SELECT DB_PROPERTY('Name')", "SCHEMA"
         end
@@ -167,6 +169,8 @@ module ActiveRecord
 
         def execute_stmt_with_binds(sql, type_casted_binds = [], &block)
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
+            raise ActiveRecord::ActiveRecordError.new('Bind limit exceeded') if type_casted_binds.length > BIND_LIMIT
+
             stmt = @connection.prepare(sql)
 
             begin
