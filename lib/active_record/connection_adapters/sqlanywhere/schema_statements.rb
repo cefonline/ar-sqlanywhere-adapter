@@ -59,7 +59,7 @@ module ActiveRecord
 
         def data_source_sql(name = nil, type: nil)
           scope = quoted_scope(name, type: type)
-          scope[:type] ||= "'BASE','VIEW'"
+          scope[:type] ||= "'BASE','GBL TEMP','VIEW'"
 
           sql = <<-SQL
             SELECT SYS.SYSUSER.user_name + '.' + SYS.SYSTAB.table_name table_name
@@ -319,7 +319,7 @@ module ActiveRecord
             type = \
               case type
               when "BASE TABLE"
-                "'BASE'"
+                "'BASE', 'GBL TEMP'"
               when "VIEW"
                 "'VIEW'"
               end
