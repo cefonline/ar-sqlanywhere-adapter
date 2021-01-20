@@ -1,3 +1,7 @@
+## 3.0.9
+
+- Fix global temprorary tables being excluded from `data_source` tables
+
 ## 3.0.8
 
 - Fix ruby VM crash when a prepared statement has a large number of parameters
