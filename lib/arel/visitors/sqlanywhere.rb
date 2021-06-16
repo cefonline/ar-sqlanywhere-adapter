@@ -37,11 +37,11 @@ module Arel
         }
 
         unless o.orders.empty?
-          collector << ORDER_BY
+          collector << " ORDER BY "
           len = o.orders.length - 1
           o.orders.each_with_index { |x, i|
             collector = visit(x, collector)
-            collector << COMMA unless len == i
+            collector << " , " unless len == i
           }
         end
 

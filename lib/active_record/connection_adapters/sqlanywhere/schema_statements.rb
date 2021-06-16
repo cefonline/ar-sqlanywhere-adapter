@@ -92,8 +92,8 @@ module ActiveRecord
             default,
             type_metadata,
             (field['nulls'] == 1),
-            table_name,
-            default_function
+            default_function,
+            comment: field['remarks']
           )
         end
 

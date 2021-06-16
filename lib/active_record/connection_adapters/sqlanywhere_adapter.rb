@@ -149,18 +149,18 @@ module ActiveRecord
         @connection = nil
       end
 
-      def translate_exception(exception, message)
+      def translate_exception(exception, message:, sql:, binds:)
         case error_number(exception)
         when -83
-          raise ActiveRecord::NoDatabaseError.new(message)
+          raise NoDatabaseError.new(message, sql: sql, binds: binds)
         when -194
-          raise ActiveRecord::InvalidForeignKey.new(message)
+          raise InvalidForeignKey.new(message, sql: sql, binds: binds)
         when -195
-          raise ActiveRecord::NotNullViolation.new(message)
+          raise NotNullViolation.new(message, sql: sql, binds: binds)
         when -196
-          raise ActiveRecord::RecordNotUnique.new(message)
+          raise RecordNotUnique.new(message, sql: sql, binds: binds)
         when -306
-          raise ActiveRecord::Deadlocked.new(message)
+          raise Deadlocked.new(message, sql: sql, binds: binds)
         else
           super
         end
@@ -269,7 +269,8 @@ module ActiveRecord
             ELSE
               SYS.SYSDOMAIN.domain_name
             ENDIF AS domain,
-            IF SYS.SYSCOLUMN.nulls = 'Y' THEN 1 ELSE 0 ENDIF AS nulls
+            IF SYS.SYSCOLUMN.nulls = 'Y' THEN 1 ELSE 0 ENDIF AS nulls,
+            SYS.SYSCOLUMN.remarks
           FROM
             SYS.SYSCOLUMN
           INNER JOIN SYS.SYSTABLE ON SYS.SYSCOLUMN.table_id = SYS.SYSTABLE.table_id
@@ -277,7 +278,7 @@ module ActiveRecord
           INNER JOIN SYS.SYSUSER ON SYS.SYSUSER.user_id = SYS.SYSTABLE.creator
           WHERE SYS.SYSTABLE.table_name = #{scope[:name]} AND SYS.SYSUSER.user_name = #{scope[:owner]}
         SQL
-        structure = exec_query(sql, "SCHEMA").to_hash
+        structure = exec_query(sql, "SCHEMA").to_a
 
         structure.map do |column|
           if String === column["default"]
