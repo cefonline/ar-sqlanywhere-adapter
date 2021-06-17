@@ -1,3 +1,8 @@
+## 6.0.0
+
+- Change gem major version to match rails major version
+- Migrate to rails 6
+
 ## 3.0.9
 
 - Fix global temprorary tables being excluded from `data_source` tables
