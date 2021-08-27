@@ -1,3 +1,7 @@
+## 6.0.1
+
+- Add support for SQLAnywhere 17
+
 ## 6.0.0
 
 - Change gem major version to match rails major version
