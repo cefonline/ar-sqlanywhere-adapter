@@ -39,7 +39,17 @@ require "active_record/connection_adapters/sqlanywhere/version"
 
 module ActiveRecord
   module ConnectionHandling
-    CREATE_DB_CONFIG = %i(collation ncollation page_size jconnect checksum system_proc_as_definer blank_padding)
+    CREATE_DB_CONFIG = %i(
+      collation
+      ncollation
+      page_size
+      jconnect
+      checksum
+      system_proc_as_definer
+      blank_padding
+      dba_user
+      dba_password
+    )
     SQLE_DATABASE_NOT_FOUND = -83
 
     def sqlanywhere_connection(config)

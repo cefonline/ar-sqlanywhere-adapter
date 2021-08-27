@@ -5,6 +5,10 @@ module ActiveRecord
     module SQLAnywhere
       module DatabaseStatements
         BIND_LIMIT = 32767
+        DEFAULT_AUTH = {
+          "username" => "DBA",
+          "password" => "sql123"
+        }
 
         def current_database
           select_value "SELECT DB_PROPERTY('Name')", "SCHEMA"
@@ -44,6 +48,8 @@ module ActiveRecord
           sql += " JCONNECT #{options[:jconnect] ? "ON" : "OFF"}" if options[:jconnect]
           sql += " PAGE SIZE #{options[:page_size]}" if options[:page_size]
           sql += " NCHAR COLLATION '#{options[:ncollation]}'" if options[:ncollation]
+          sql += " DBA USER '#{options.fetch(:dba_user, DEFAULT_AUTH["username"])}'"
+          sql += " DBA PASSWORD '#{options.fetch(:dba_password, DEFAULT_AUTH["password"])}'"
           if options[:system_proc_as_definer]
             sql += " SYSTEM PROCEDURE AS DEFINER #{options[:system_proc_as_definer] ? "ON" : "OFF"}"
           end
