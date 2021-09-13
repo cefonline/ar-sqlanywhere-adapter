@@ -48,6 +48,7 @@ module ActiveRecord
 
       def structure_dump filename, extra_flags
         args = ["-c", connection.connection_string, "-y", "-q", "-n", "-r", filename]
+        args.push("-up") if need_option_for_password_unload?
         args.concat(Array(extra_flags)) if extra_flags
 
         Kernel.system("dbunload", *args)
@@ -67,6 +68,10 @@ module ActiveRecord
       end
 
       private
+        def need_option_for_password_unload?
+          connection.sqlanywhere_version.to_s.split('.')[0].to_i == 17
+        end
+
         def configuration
           @configuration
         end
