@@ -1,6 +1,10 @@
+## 6.0.2
+
+- Add support for SQLAnywhere 17 structure unload
+
 ## 6.0.1
 
-- Add support for SQLAnywhere 17
+- Add support for SQLAnywhere 17 structure load
 
 ## 6.0.0
 
