@@ -57,42 +57,42 @@ module ActiveRecord
           execute sql
         end
 
-        def start_database name
+        def start_database(name)
           execute "START DATABASE '#{name}' AUTOSTOP OFF"
-        rescue ActiveRecord::StatementInvalid => error # Если БД нет, то все ОК
+        rescue ActiveRecord::StatementInvalid => error
           raise unless error.is_a? ActiveRecord::NoDatabaseError
         end
 
-        def stop_database name
+        def stop_database(name)
           execute("STOP DATABASE #{name} UNCONDITIONALLY")
-        rescue ActiveRecord::StatementInvalid => error # Если БД нет, то все ОК
+        rescue ActiveRecord::StatementInvalid => error
           raise unless error.is_a? ActiveRecord::NoDatabaseError
         end
 
-        def drop_database name
+        def drop_database(name)
           execute("DROP DATABASE '#{name}'")
-        rescue ActiveRecord::StatementInvalid => error # Если БД нет, то все ОК
+        rescue ActiveRecord::StatementInvalid => error
           raise unless error.is_a? ActiveRecord::NoDatabaseError
         end
 
-        def create_user name, password
+        def create_user(name, password)
           execute("CREATE USER #{name} IDENTIFIED BY #{password}")
         end
 
-        def drop_user name
+        def drop_user(name)
           execute("DROP USER #{name}")
         end
 
         def last_inserted_id(result)
-          select('SELECT @@IDENTITY', 'SCHEMA').first["@@IDENTITY"]
+          select("SELECT @@IDENTITY", "SCHEMA").first["@@IDENTITY"]
         end
 
         def current_isolation_level
           level = case select_value("SELECT CONNECTION_PROPERTY('isolation_level')")
-          when "0" then :read_uncommitted
-          when "1" then :read_committed
-          when "2" then :repeatable_read
-          when "3" then :serializable
+                  when "0" then :read_uncommitted
+                  when "1" then :read_committed
+                  when "2" then :repeatable_read
+                  when "3" then :serializable
           end
 
           transaction_isolation_levels.fetch(level)
@@ -115,7 +115,7 @@ module ActiveRecord
 
         def commit_db_transaction
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
-            log('COMMIT', nil) { @connection.commit }
+            log("COMMIT", nil) { @connection.commit }
           end
         ensure
           @auto_commit = true
@@ -123,7 +123,7 @@ module ActiveRecord
 
         def exec_rollback_db_transaction
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
-            log('ROLLBACK', nil) { @connection.rollback }
+            log("ROLLBACK", nil) { @connection.rollback }
           end
         ensure
           @auto_commit = true
@@ -137,18 +137,18 @@ module ActiveRecord
         end
 
         def with_connection_property(property_name, property_value, &block)
-          old = select_value("SELECT connection_property( '#{property_name}' )", 'SCHEMA')
+          old = select_value("SELECT connection_property( '#{property_name}' )", "SCHEMA")
 
           begin
-            execute("SET TEMPORARY OPTION #{property_name} = '#{property_value}'", 'SCHEMA')
+            execute("SET TEMPORARY OPTION #{property_name} = '#{property_value}'", "SCHEMA")
             result = yield
           ensure
-            execute("SET TEMPORARY OPTION #{property_name} = '#{old}'", 'SCHEMA')
+            execute("SET TEMPORARY OPTION #{property_name} = '#{old}'", "SCHEMA")
             result
           end
         end
 
-        def exec_query sql, name = nil, binds = [], prepare = false
+        def exec_query(sql, name = nil, binds = [], prepare = false)
           execute_stmt(sql, name, binds, cache_stmt: prepare) do |stmt, result|
             ActiveRecord::Result.new(result.columns.map(&:name), result.rows) if result
           end
@@ -175,7 +175,7 @@ module ActiveRecord
 
         def execute_stmt_with_binds(sql, type_casted_binds = [], &block)
           ActiveSupport::Dependencies.interlock.permit_concurrent_loads do
-            raise ActiveRecord::ActiveRecordError.new('Bind limit exceeded') if type_casted_binds.length > BIND_LIMIT
+            raise ActiveRecord::ActiveRecordError.new("Bind limit exceeded") if type_casted_binds.length > BIND_LIMIT
 
             stmt = @connection.prepare(sql)
 

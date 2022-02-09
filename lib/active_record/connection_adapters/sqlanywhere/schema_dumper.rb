@@ -5,9 +5,10 @@ module ActiveRecord
     module SQLAnywhere
       class SchemaDumper < ConnectionAdapters::SchemaDumper
         private
-          def default_primary_key?(column)
-            schema_type(column) == :integer && column.default_function == "AUTOINCREMENT"
-          end
+
+        def default_primary_key?(column)
+          schema_type(column) == :integer && column.default_function == "AUTOINCREMENT"
+        end
       end
     end
   end

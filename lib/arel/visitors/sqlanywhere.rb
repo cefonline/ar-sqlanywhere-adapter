@@ -32,7 +32,7 @@ module Arel
           collector = maybe_visit offset, collector
         end
 
-        collector = o.cores.inject(collector) { |c,x|
+        collector = o.cores.inject(collector) { |c, x|
           visit_Arel_Nodes_SelectCore(x, c)
         }
 

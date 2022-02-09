@@ -1,5 +1,4 @@
 # frozen_string_literal: true
-# based on "active_record/connection_adapters/postgresql/utils"
 
 module ActiveRecord
   module ConnectionAdapters
@@ -8,7 +7,7 @@ module ActiveRecord
       # This is usually the name of a SQLAnywhere relation but it can also represent
       # owner qualified type names. +onwer+ and +identifier+ are unquoted to prevent
       # double quoting.
-      class Name # :nodoc:
+      class Name
         SEPARATOR = "."
         attr_reader :owner, :identifier
 
@@ -39,21 +38,22 @@ module ActiveRecord
 
         protected
 
-          def parts
-            @parts ||= [@owner, @identifier].compact
-          end
+        def parts
+          @parts ||= [@owner, @identifier].compact
+        end
 
         private
-          def unquote(part)
-            if part && part.start_with?('"')
-              part[1..-2]
-            else
-              part
-            end
+
+        def unquote(part)
+          if part && part.start_with?('"')
+            part[1..-2]
+          else
+            part
           end
+        end
       end
 
-      module Utils # :nodoc:
+      module Utils
         extend self
 
         # Returns an instance of <tt>ActiveRecord::ConnectionAdapters::SQLAnywhere::Name</tt>

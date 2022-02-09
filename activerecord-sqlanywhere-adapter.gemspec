@@ -2,7 +2,7 @@
 
 $:.push File.expand_path("../lib", __FILE__)
 
-require 'active_record/connection_adapters/sqlanywhere/version'
+require "active_record/connection_adapters/sqlanywhere/version"
 
 Gem::Specification.new do |spec|
   spec.name          = "activerecord-sqlanywhere-adapter"

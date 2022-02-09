@@ -1,12 +1,12 @@
 # frozen_string_literal: true
+
 module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
-      module Quoting # :nodoc:
-
+      module Quoting
         def self.quote_ident(ident)
           # Remove backslashes and double quotes from ident
-          ident = ident.to_s.gsub(/\\|"/, '')
+          ident = ident.to_s.gsub(/\\|"/, "")
           %Q("#{ident}")
         end
 
@@ -14,12 +14,12 @@ module ActiveRecord
           quote_column_name(attr)
         end
 
-        def quote_table_name table_name
+        def quote_table_name(table_name)
           SQLAnywhere::Utils.extract_owner_qualified_name(table_name.to_s).quoted
         end
 
         # Applies quotations around column names in generated queries
-        def quote_column_name(name) #:nodoc:
+        def quote_column_name(name)
           Quoting.quote_ident name
         end
 
@@ -28,7 +28,7 @@ module ActiveRecord
           # We might receive values with wrong encoding. Convert them to correct encoding.
           # dup the value since it might be Frozen
           when String, ActiveSupport::Multibyte::Chars then super(value).dup.force_encoding(@connection.encoding)
-          when Type::Binary::Data then "'#{string_to_binary(value.to_s)}'"
+          when Type::Binary::Data then "'#{value}'"
           # This by default returns a value with ASCII_8BIT encoding which is a binary type in SQLAnywhere2
           # So we convert it to correct connection type
           when BigDecimal then super(value).force_encoding(@connection.encoding)
@@ -41,7 +41,7 @@ module ActiveRecord
           # We might receive values with wrong encoding. Convert them to correct encoding
           # dup the value since it might be Frozen
           when String, ActiveSupport::Multibyte::Chars then super(value).dup.force_encoding(@connection.encoding)
-          when Type::Binary::Data then string_to_binary(value.to_s)
+          when Type::Binary::Data then value.to_s
           # This by default returns a value with ASCII_8BIT encoding which is a binary type in SQLAnywhere2
           # So we convert it to correct connection type
           when BigDecimal then super(value).force_encoding(@connection.encoding)
@@ -64,27 +64,6 @@ module ActiveRecord
         def unquoted_true
           1
         end
-
-        private
-
-          # Handles the encoding of a binary object into SQL Anywhere
-          # SQL Anywhere requires that binary values be encoded as \xHH, where HH is a hexadecimal number
-          # This function encodes the binary string in this format
-          def string_to_binary(value)
-            value
-            #"\\x" + value.unpack("H*")[0].scan(/../).join("\\x")
-          end
-
-          def binary_to_string(value)
-            # This is causing issues when importing some documents including PDF docs
-            # that have \\x46 in the document, the code below is replacing this with
-            # the hex value of 46 which modifies the document content and makes it unreadable
-            # and no longer useful. I'm not exactly sure why this is needed as I don't want my
-            # binary data modified in any way
-            #value.gsub(/\\x[0-9]{2}/) { |byte| byte[2..3].hex }
-            value
-          end
-
       end
     end
   end

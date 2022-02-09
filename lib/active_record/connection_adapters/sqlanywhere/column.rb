@@ -3,7 +3,7 @@
 module ActiveRecord
   module ConnectionAdapters
     module SQLAnywhere
-      class Column < ConnectionAdapters::Column #:nodoc:
+      class Column < ConnectionAdapters::Column
       end
     end
   end
