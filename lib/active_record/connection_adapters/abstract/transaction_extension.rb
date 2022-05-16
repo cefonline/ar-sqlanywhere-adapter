@@ -22,10 +22,9 @@ module ActiveRecord
 
     module SQLAnywhereRealTransaction
       attr_reader :starting_sqlanywhere_isolation_level
-
-      def initialize(connection, options, **args)
+      def initialize(connection, isolation: nil, joinable: true, run_commit_callbacks: false)
         @connection = connection
-        @starting_sqlanywhere_isolation_level = current_sqlanywhere_isolation_level if options[:isolation]
+        @starting_sqlanywhere_isolation_level = current_sqlanywhere_isolation_level if isolation
         super
       end
 

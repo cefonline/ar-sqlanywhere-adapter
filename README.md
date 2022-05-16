@@ -1,6 +1,6 @@
 # SQLAnywhere ActiveRecord
 
-This is a SQLAnywhere driver for ActiveRecord 6.0.
+This is a SQLAnywhere driver for ActiveRecord 6.1.
 This driver supports SQLAnywhere 16 and 17.
 This driver requires the `SQLAnywhere2` ruby gem.
 
